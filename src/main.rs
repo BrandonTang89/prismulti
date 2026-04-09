@@ -28,15 +28,32 @@ fn main() {
             println!("Parsing DTMC model from file: {}", args.model);
             let model_str =
                 std::fs::read_to_string(&args.model).expect("Failed to read model file");
-            match parse_dtmc(&model_str) {
-                Ok(model) => {
+
+            let mut ast = match parse_dtmc(&model_str) {
+                Ok(ast) => {
                     println!("Successfully parsed DTMC model:");
-                    println!("{:#?}", model);
+                    ast
                 }
                 Err(e) => {
-                    eprintln!("Failed to parse DTMC model: {}", e);
+                    eprintln!("Failed to parse DTMC model: {e}");
+                    return;
                 }
-            }
+            };
+            let info = match prism_rs::analyze::analyze_dtmc(&mut ast) {
+                Ok(info) => {
+                    println!("Model analysis successful:");
+                    println!("Module names: {:?}", info.module_names);
+                    info
+                }
+                Err(e) => {
+                    eprintln!("Model analysis failed: {e}");
+                    return;
+                }
+            };
+
+            let symbolic_dtmc = prism_rs::constr_symbolic::build_symbolic_dtmc(&ast, &info);
+            println!("Symbolic DTMC construction successful:");
+            println!("Transitions BDD node ID: {:?}", symbolic_dtmc.transitions);
         }
     }
 }

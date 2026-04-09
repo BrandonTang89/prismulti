@@ -20,8 +20,8 @@ Comma<T>: Vec<T> = {
     }
 };
 
-pub DTMC: DTMCModel = {
-    "dtmc" <modules:Module*> => DTMCModel { modules }
+pub DTMC: DTMCAst = {
+    "dtmc" <modules:Module*> => DTMCAst { modules }
 };
 
 Module: Module = {

@@ -1,5 +1,5 @@
 #[derive(Debug)]
-pub struct DTMCModel {
+pub struct DTMCAst {
     pub modules: Vec<Module>,
     // constants
     // global vars
@@ -25,12 +25,14 @@ pub enum VarType {
     BoundedInt { lo: Box<Expr>, hi: Box<Expr> },
     Bool,
 }
+
 #[derive(Debug)]
 pub struct Command {
     pub labels: Vec<String>,
     pub guard: Box<Expr>,
     pub updates: Vec<ProbUpdate>,
 }
+
 #[derive(Debug)]
 pub struct ProbUpdate {
     pub prob: Box<Expr>,

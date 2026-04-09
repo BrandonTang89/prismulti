@@ -8,7 +8,7 @@ lalrpop_mod!(
     "/parser/parser.rs"
 );
 
-pub fn parse_dtmc(input: &str) -> Result<ast::DTMCModel, String> {
+pub fn parse_dtmc(input: &str) -> Result<ast::DTMCAst, String> {
     let parser = parser::DTMCParser::new();
     parser.parse(input).map_err(|e| {
         let msg = match &e {
@@ -26,7 +26,7 @@ pub fn parse_dtmc(input: &str) -> Result<ast::DTMCModel, String> {
             lalrpop_util::ParseError::UnrecognizedEof { expected, .. } => {
                 format!("Unexpected end of input. Expected one of: {}", expected.join(", "))
             }
-            _ => e.to_string(),
+            _ => e.to_string(), 
         };
         msg
     })
