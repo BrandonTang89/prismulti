@@ -10,7 +10,10 @@ pub struct DTMCModelInfo {
     pub synchronisation_labels: std::collections::HashMap<String, Vec<String>>,
 
     /// LocalVarName -> ModuleName
-    pub local_variables: std::collections::HashMap<String, String>,
+    pub module_of_var: std::collections::HashMap<String, String>,
+
+    /// VariableName -> (lo, hi)
+    pub var_bounds: std::collections::HashMap<String, (i32, i32)>,
 }
 
 /// Adds explicit action labels to transitions that don't have them
@@ -19,6 +22,8 @@ pub fn analyze_dtmc(model: &mut DTMCAst) -> Result<DTMCModelInfo> {
     let mut synchronisation_labels: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     let mut local_variables: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut var_bounds: std::collections::HashMap<String, (i32, i32)> =
         std::collections::HashMap::new();
     for module in &mut model.modules {
         let default_module_label = format!("__{}_action__", module.name);
@@ -41,10 +46,11 @@ pub fn analyze_dtmc(model: &mut DTMCAst) -> Result<DTMCModelInfo> {
             }
 
             if synchronisation_labels.contains_key(&commands.labels[0]) {
-                synchronisation_labels
-                    .get_mut(&commands.labels[0])
-                    .unwrap()
-                    .push(module.name.clone());
+                let modules = synchronisation_labels.get_mut(&commands.labels[0]).unwrap();
+                // avoid duplicates
+                if modules.last() != Some(&module.name) {
+                    modules.push(module.name.clone());
+                }
             } else {
                 synchronisation_labels
                     .insert(commands.labels[0].clone(), vec![module.name.clone()]);
@@ -61,12 +67,30 @@ pub fn analyze_dtmc(model: &mut DTMCAst) -> Result<DTMCModelInfo> {
                 );
             }
             local_variables.insert(var_decl.name.clone(), module.name.clone());
+            match &var_decl.var_type {
+                VarType::BoundedInt { lo, hi } => {
+                    if let (Expr::IntLit(lo_val), Expr::IntLit(hi_val)) = (&**lo, &**hi) {
+                        var_bounds.insert(var_decl.name.clone(), (*lo_val, *hi_val));
+                    } else {
+                        bail!(
+                            "Bounds of variable '{}' must be integer literals: {:?} {:?}",
+                            var_decl.name,
+                            lo,
+                            hi
+                        );
+                    }
+                }
+                VarType::Bool => {
+                    var_bounds.insert(var_decl.name.clone(), (0, 1));
+                }
+            }
         }
     }
 
     Ok(DTMCModelInfo {
         module_names: model.modules.iter().map(|m| m.name.clone()).collect(),
         synchronisation_labels,
-        local_variables,
+        module_of_var: local_variables,
+        var_bounds,
     })
 }

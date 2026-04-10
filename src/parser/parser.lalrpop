@@ -60,7 +60,7 @@ Assignment: Box<Expr> = {
     "(" <var:Ident> "'" "=" <e:Expr> ")"
         => Box::new(Expr::BinOp {
             lhs: Box::new(Expr::PrimedIdent(var)),
-            op: BinOp::Equals,
+            op: BinOp::Eq,
             rhs: e,
         })
 };
@@ -92,14 +92,14 @@ Expr: Box<Expr> = {
     <lhs:Expr> "-" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Minus, rhs }),
 
     #[precedence(level="5")] #[assoc(side="left")]
-    <lhs:Expr> "<" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Less, rhs }),
-    <lhs:Expr> "<=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::LessEq, rhs }),
-    <lhs:Expr> ">" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Greater, rhs }),
-    <lhs:Expr> ">=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::GreaterEq, rhs }),
+    <lhs:Expr> "<" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Lt, rhs }),
+    <lhs:Expr> "<=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Leq, rhs }),
+    <lhs:Expr> ">" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Gt, rhs }),
+    <lhs:Expr> ">=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Geq, rhs }),
 
     #[precedence(level="6")] #[assoc(side="left")]
-    <lhs:Expr> "=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Equals, rhs }),
-    <lhs:Expr> "!=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::NotEquals, rhs }),
+    <lhs:Expr> "=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Eq, rhs }),
+    <lhs:Expr> "!=" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Neq, rhs }),
 
     #[precedence(level="7")] #[assoc(side="left")]
     <lhs:Expr> "&&" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::And, rhs }),
