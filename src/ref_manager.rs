@@ -251,6 +251,7 @@ impl RefManager {
     }
 
     /// Dumps a graphviz dot file representing the structure of the ADD rooted at `root`. \
+    /// Positive edges (then) are solid, negative edges (else) are dashed. \
     /// __Refs__: None \
     /// __Derefs__: None
     pub fn dump_add_dot(
@@ -284,6 +285,12 @@ impl RefManager {
             id
         })
     }
+
+    /// Recurses through the DD structure to output DOT \
+    /// Uses ids and next_id to assign a unique integer to each node created to use as the
+    /// node identifier in the dot file \
+    /// Uses labels to label the nodes in the dot file \
+    /// We don't use the labels as identifiers since the labels can contain spaces
     fn dump_add_dot_rec<W: Write>(
         &self,
         n: NodeId,
