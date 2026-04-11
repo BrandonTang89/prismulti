@@ -8,6 +8,10 @@ lalrpop_mod!(
     "/parser/parser.rs"
 );
 
+/// Parse a PRISM DTMC model string into the project AST.
+///
+/// On parse failure, this reports line/column-oriented diagnostics to make
+/// grammar errors easier to locate.
 pub fn parse_dtmc(input: &str) -> Result<ast::DTMCAst, String> {
     let parser = parser::DTMCParser::new();
     parser.parse(input).map_err(|e| {

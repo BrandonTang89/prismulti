@@ -1,4 +1,5 @@
-#[derive(Debug)]
+/// Top-level DTMC AST.
+#[derive(Clone, Debug)]
 pub struct DTMCAst {
     pub modules: Vec<Module>,
     // constants
@@ -6,40 +7,46 @@ pub struct DTMCAst {
     // functions, etc.
 }
 
-#[derive(Debug)]
+/// PRISM module declaration.
+#[derive(Clone, Debug)]
 pub struct Module {
     pub name: String,
     pub local_vars: Vec<VarDecl>,
     pub commands: Vec<Command>,
 }
 
-#[derive(Debug)]
+/// Local variable declaration.
+#[derive(Clone, Debug)]
 pub struct VarDecl {
     pub name: String,
     pub var_type: VarType,
     pub init: Box<Expr>,
 }
 
-#[derive(Debug)]
+/// Supported variable types.
+#[derive(Clone, Debug)]
 pub enum VarType {
     BoundedInt { lo: Box<Expr>, hi: Box<Expr> },
     Bool,
 }
 
-#[derive(Debug)]
+/// Guarded command.
+#[derive(Clone, Debug)]
 pub struct Command {
     pub labels: Vec<String>,
     pub guard: Box<Expr>,
     pub updates: Vec<ProbUpdate>,
 }
 
-#[derive(Debug)]
+/// One probabilistic branch of a command update.
+#[derive(Clone, Debug)]
 pub struct ProbUpdate {
     pub prob: Box<Expr>,
     pub assignments: Vec<Box<Expr>>,
 }
 
-#[derive(Debug)]
+/// Expression language supported by the parser and symbolic translator.
+#[derive(Clone, Debug)]
 pub enum Expr {
     // Literals
     BoolLit(bool),
@@ -67,13 +74,15 @@ pub enum Expr {
     },
 }
 
-#[derive(Debug)]
+/// Unary operators.
+#[derive(Clone, Debug)]
 pub enum UnOp {
     Not,
     Neg,
 }
 
-#[derive(Debug)]
+/// Binary operators.
+#[derive(Clone, Debug)]
 pub enum BinOp {
     And,
     Or,
@@ -90,7 +99,7 @@ pub enum BinOp {
 }
 
 /// `module mac2 = mac1 [s1=s2, s2=s1,...] endmodule`
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RenamedModule {
     pub name: String,
     pub base: String,

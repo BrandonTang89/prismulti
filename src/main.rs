@@ -8,6 +8,7 @@ enum ModelType {
     DTMC,
 }
 
+/// Command-line arguments.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -31,6 +32,7 @@ fn main() {
 
     println!("== Prism-rs ==");
 
+    // Parse, analyze and construct the symbolic model for the selected type.
     match args.model_type {
         ModelType::DTMC => {
             println!("Parsing DTMC model from file: {}", args.model);
@@ -59,7 +61,7 @@ fn main() {
                 }
             };
 
-            let mut symbolic_dtmc = prism_rs::constr_symbolic::build_symbolic_dtmc(&ast, &info);
+            let mut symbolic_dtmc = prism_rs::constr_symbolic::build_symbolic_dtmc(ast, info);
 
             println!("Filtered DTMC:\n{}", symbolic_dtmc.describe());
         }

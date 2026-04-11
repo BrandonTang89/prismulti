@@ -1,8 +1,9 @@
-/// Modifies the AST to assist in model checking.
-/// Also gathers information about the model that will be useful for later stages of the pipeline
+/// Semantic analysis and normalization for DTMC models.
 use crate::ast::*;
 use anyhow::{bail, Result};
 
+/// Analysis summary consumed by symbolic construction.
+#[derive(Clone, Debug)]
 pub struct DTMCModelInfo {
     pub module_names: Vec<String>,
 
@@ -16,8 +17,13 @@ pub struct DTMCModelInfo {
     pub var_bounds: std::collections::HashMap<String, (i32, i32)>,
 }
 
-/// Adds explicit action labels to transitions that don't have them
-/// todo: expand renamed-modules
+/// Analyze and normalize a DTMC AST before symbolic translation.
+///
+/// This pass:
+/// - inserts default labels for unlabeled commands,
+/// - validates command label usage,
+/// - validates local variable declarations and bounds,
+/// - computes index maps for modules/actions/variables.
 pub fn analyze_dtmc(model: &mut DTMCAst) -> Result<DTMCModelInfo> {
     let mut synchronisation_labels: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();

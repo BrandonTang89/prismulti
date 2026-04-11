@@ -1,6 +1,7 @@
 use crate::ast::{Expr, VarDecl, VarType};
-use crate::constr_symbolic::SymbolicDTMC;
+use crate::symbolic_dtmc::SymbolicDTMC;
 
+/// Extract a concrete integer from an initial-value expression.
 fn init_value(var_decl: &VarDecl) -> i32 {
     match (&var_decl.var_type, &*var_decl.init) {
         (VarType::BoundedInt { .. }, Expr::IntLit(v)) => *v,
@@ -19,6 +20,7 @@ fn init_value(var_decl: &VarDecl) -> i32 {
     }
 }
 
+/// Build BDD for the unique initial state over current-state bits.
 fn build_init_bdd(dtmc: &mut SymbolicDTMC) -> lumindd::NodeId {
     let mut init = dtmc.mgr.bdd_one();
 
@@ -63,8 +65,8 @@ fn curr_next_var_indices(dtmc: &SymbolicDTMC) -> (Vec<u16>, Vec<u16>) {
             let curr_nodes = &dtmc.var_curr_nodes[var_name];
             let next_nodes = &dtmc.var_next_nodes[var_name];
             for (&curr, &next) in curr_nodes.iter().zip(next_nodes.iter()) {
-                curr_indices.push(dtmc.mgr.inner.read_var_index(curr.regular()));
-                next_indices.push(dtmc.mgr.inner.read_var_index(next.regular()));
+                curr_indices.push(dtmc.mgr.read_var_index(curr.regular()));
+                next_indices.push(dtmc.mgr.read_var_index(next.regular()));
             }
         }
     }
@@ -72,6 +74,13 @@ fn curr_next_var_indices(dtmc: &SymbolicDTMC) -> (Vec<u16>, Vec<u16>) {
     (curr_indices, next_indices)
 }
 
+/// Compute least fixed-point reachability and filter transition relation.
+///
+/// Steps:
+/// 1. Convert transition ADD to 0-1 BDD.
+/// 2. Iterate `R := R OR post(R)` using BDD image computation.
+/// 3. Restrict transitions to reachable current states.
+/// 4. Store filtered 0-1 transition BDD in `dtmc.transitions_01_bdd`.
 pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
     let mut reachable = build_init_bdd(dtmc);
 
@@ -108,7 +117,6 @@ pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
         .add_sum_abstract(reachable_add_for_count, dtmc.curr_var_cube);
     let reachable_states = dtmc
         .mgr
-        .inner
         .add_value(reachable_count_add.regular())
         .unwrap_or(0.0)
         .round() as u64;
@@ -120,6 +128,7 @@ pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
 
     dtmc.mgr.ref_node(reachable);
     let reachable_add = dtmc.mgr.bdd_to_add(reachable);
+    dtmc.mgr.deref_node(dtmc.transitions);
     dtmc.transitions = dtmc.mgr.add_times(dtmc.transitions, reachable_add);
 
     dtmc.mgr.ref_node(dtmc.transitions);
@@ -129,4 +138,12 @@ pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
     dtmc.mgr.deref_node(old_bdd);
     dtmc.mgr.deref_node(reachable);
     dtmc.mgr.deref_node(trans_bdd);
+}
+
+pub fn count_transitions_minterms(dtmc: &mut SymbolicDTMC) -> u64 {
+    let (curr_indices, next_indices) = curr_next_var_indices(dtmc);
+    dtmc.mgr.bdd_count_minterms(
+        dtmc.transitions_01_bdd,
+        (curr_indices.len() + next_indices.len()) as u32,
+    )
 }

@@ -1,126 +1,55 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::analyze::*;
-use crate::ast::*;
-use crate::reachability::compute_reachable_and_filter;
-use crate::ref_manager::RefManager;
 use lumindd::NodeId;
 use tracing::debug;
 
-pub struct SymbolicDTMC<'a> {
-    /// ManagerRef
-    pub mgr: RefManager,
+use crate::analyze::DTMCModelInfo;
+use crate::ast::*;
+use crate::reachability::compute_reachable_and_filter;
+use crate::symbolic_dtmc::SymbolicDTMC;
 
-    /// AST
-    pub ast: &'a DTMCAst,
-
-    /// Info
-    pub info: &'a DTMCModelInfo,
-
-    /// Variable name to DD node IDs, from LSB to MSB
-    pub var_curr_nodes: std::collections::HashMap<String, Vec<NodeId>>,
-    pub var_next_nodes: std::collections::HashMap<String, Vec<NodeId>>,
-
-    /// DD node ID to human-friendly variable bit label (e.g., s_0, s_1)
-    pub dd_var_names: std::collections::HashMap<NodeId, String>,
-
-    /// All primed variables BDD cube
-    pub next_var_cube: NodeId,
-
-    /// All current variables BDD cube
-    pub curr_var_cube: NodeId,
-
-    /// ADD representing the transition relation
-    pub transitions: NodeId,
-
-    /// 0-1 BDD of transitions after reachability filtering
-    pub transitions_01_bdd: NodeId,
+/// Internal symbolic representation of a single command.
+#[derive(Debug)]
+struct SymbolicCommand {
+    /// Referenced ADD for `guard * sum(prob_i * assignment_i)`.
+    transition: NodeId,
 }
 
-impl<'a> SymbolicDTMC<'a> {
-    fn new(ast: &'a DTMCAst, info: &'a DTMCModelInfo) -> Self {
-        let mut mgr = RefManager::new();
-        let transitions = mgr.add_zero();
-        let transitions_01_bdd = mgr.bdd_zero();
-        let next_var_cube = mgr.bdd_one();
-        let curr_var_cube = mgr.bdd_one();
-        SymbolicDTMC {
-            var_curr_nodes: std::collections::HashMap::new(),
-            var_next_nodes: std::collections::HashMap::new(),
-            dd_var_names: std::collections::HashMap::new(),
-            mgr,
-            transitions,
-            transitions_01_bdd,
-            next_var_cube,
-            curr_var_cube,
-            ast,
-            info,
-        }
-    }
-
-    pub fn describe(&mut self) -> String {
-        let mut desc = String::new();
-        desc.push_str(&format!("Variables:\n"));
-        for (var_name, curr_nodes) in &self.var_curr_nodes {
-            let next_nodes = &self.var_next_nodes[var_name];
-            let var_desc = format!(
-                "  {}: curr nodes {:?}, next nodes {:?}\n",
-                var_name, curr_nodes, next_nodes
-            );
-            desc.push_str(&var_desc);
-        }
-        desc.push_str(&format!(
-            "Transitions ADD node ID: {:?}\n",
-            self.transitions
-        ));
-        desc.push_str(&format!(
-            "Transitions 0-1 BDD node ID: {:?}\n",
-            self.transitions_01_bdd
-        ));
-
-        let num_curr_bits: usize = self.var_curr_nodes.values().map(|v| v.len()).sum();
-        let num_next_bits: usize = self.var_next_nodes.values().map(|v| v.len()).sum();
-        let num_vars = (num_curr_bits + num_next_bits) as u32;
-        let stats = self.mgr.add_stats(self.transitions, num_vars);
-
-        desc.push_str(&format!(
-            "Num Nodes ADD: {}, Num Terminals: {}, Transitions(minterms): {}\n",
-            stats.node_count, stats.terminal_count, stats.minterms
-        ));
-        desc
-    }
+/// Internal symbolic representation of a module.
+#[derive(Debug)]
+struct SymbolicModule {
+    /// Referenced ADD identity relation for this module (`x' = x` for all locals).
+    ident: NodeId,
+    /// Referenced command transitions grouped by action label.
+    commands_by_action: HashMap<String, Vec<SymbolicCommand>>,
 }
 
+/// Allocate DD variables for every model variable and build current/next cubes.
 fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
     for module in &dtmc.ast.modules {
         for var_decl in &module.local_vars {
             let var_name = &var_decl.name;
-            let var_type = &var_decl.var_type;
-            let num_bits = match var_type {
+            let num_bits = match &var_decl.var_type {
                 VarType::Bool => 1,
                 VarType::BoundedInt { lo, hi } => {
-                    // For simplicity, we assume lo and hi are integer literals
-                    let lo_val = match **lo {
-                        Expr::IntLit(val) => val,
+                    let lo_val = match lo.as_ref() {
+                        Expr::IntLit(val) => *val,
                         _ => panic!("Expected integer literal for variable bounds"),
                     };
-                    let hi_val = match **hi {
-                        Expr::IntLit(val) => val,
+                    let hi_val = match hi.as_ref() {
+                        Expr::IntLit(val) => *val,
                         _ => panic!("Expected integer literal for variable bounds"),
                     };
                     let range_size = hi_val - lo_val + 1;
-
                     match range_size {
                         0 => panic!("Invalid variable bounds: lo must be <= hi"),
-                        1 => panic!("Variable '{}' has only one possible value", var_name), // No bits needed for a single value
+                        1 => panic!("Variable '{}' has only one possible value", var_name),
                         _ => (range_size - 1).ilog2() + 1,
                     }
                 }
             };
 
             let mgr = &mut dtmc.mgr;
-
-            // Interleaved ordering
             let nodes: Vec<NodeId> = (0..num_bits * 2).map(|_| mgr.new_var()).collect();
             let curr_nodes: Vec<NodeId> = nodes.chunks(2).map(|c| c[0]).collect();
             let next_nodes: Vec<NodeId> = nodes.chunks(2).map(|c| c[1]).collect();
@@ -158,23 +87,13 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
     }
 }
 
-#[derive(Debug)]
-struct SymbolicCommand {
-    transition: NodeId,
-}
-
-#[derive(Debug)]
-struct SymbolicModule {
-    ident: NodeId,
-    commands_by_action: std::collections::HashMap<String, Vec<SymbolicCommand>>,
-}
-
+/// Return ADD encoding of variable value (`curr` or `next`) with lower-bound offset.
 fn get_variable_encoding(dtmc: &mut SymbolicDTMC, var_name: &str, primed: bool) -> NodeId {
     let (lo, _) = dtmc
         .info
         .var_bounds
         .get(var_name)
-        .expect(&format!("Variable '{}' not found in model info", var_name));
+        .unwrap_or_else(|| panic!("Variable '{}' not found in model info", var_name));
 
     let mgr = &mut dtmc.mgr;
     let offset_add = mgr.add_const(*lo as f64);
@@ -183,11 +102,11 @@ fn get_variable_encoding(dtmc: &mut SymbolicDTMC, var_name: &str, primed: bool) 
     } else {
         &dtmc.var_curr_nodes[var_name]
     };
-    let encoding = mgr.get_encoding(&variable_nodes);
+    let encoding = mgr.get_encoding(variable_nodes);
     mgr.add_plus(encoding, offset_add)
 }
 
-/// Returns a referenced ADD representing the expression
+/// Translate an AST expression to a referenced ADD node.
 fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> NodeId {
     match expr {
         Expr::IntLit(i) => dtmc.mgr.add_const(*i as f64),
@@ -262,6 +181,7 @@ fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> NodeId {
     }
 }
 
+/// If expression is of the form `(x' = ...)`, return `x`.
 fn get_assign_target(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::BinOp {
@@ -274,6 +194,10 @@ fn get_assign_target(expr: &Expr) -> Option<&str> {
     }
 }
 
+/// Translate one probabilistic update branch.
+///
+/// Adds stutter constraints for module-local variables that are not explicitly
+/// assigned in the branch.
 fn translate_update(
     update: &ProbUpdate,
     module_local_vars: &[String],
@@ -287,19 +211,18 @@ fn translate_update(
         .filter_map(|assignment| get_assign_target(assignment).map(|name| name.to_string()))
         .collect();
 
-    // For variables that are updated, use the translated expression
     let symbolic_updates = update
         .assignments
         .iter()
-        .map(|assignment| translate_expr(&*assignment, dtmc))
+        .map(|assignment| translate_expr(assignment, dtmc))
         .collect::<Vec<_>>();
+
     let mgr = &mut dtmc.mgr;
     let add_one = mgr.add_const(1.0);
     let mut assign = symbolic_updates
         .iter()
         .fold(add_one, |acc, &result| mgr.add_times(acc, result));
 
-    // For variables that are not assigned, ensure they remain unchanged
     for var_name in module_local_vars {
         if assigned_vars.contains(var_name) {
             continue;
@@ -318,6 +241,7 @@ fn translate_update(
     dtmc.mgr.add_times(prob, assign)
 }
 
+/// Translate one command: `guard * (sum updates)`.
 fn translate_command(
     cmd: &Command,
     module_local_vars: &[String],
@@ -335,10 +259,10 @@ fn translate_command(
         .iter()
         .fold(mgr.add_zero(), |acc, &update| mgr.add_plus(acc, update));
     let transition = mgr.add_times(guard, updates_sum);
-
     SymbolicCommand { transition }
 }
 
+/// Translate one module into identity and per-action command transitions.
 fn translate_module(module: &Module, dtmc: &mut SymbolicDTMC) -> SymbolicModule {
     let module_local_vars = module
         .local_vars
@@ -350,31 +274,27 @@ fn translate_module(module: &Module, dtmc: &mut SymbolicDTMC) -> SymbolicModule 
     for var_name in module.local_vars.iter().map(|v| &v.name) {
         let curr_nodes = dtmc.var_curr_nodes[var_name].clone();
         let next_nodes = dtmc.var_next_nodes[var_name].clone();
-
         for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
             dtmc.mgr.ref_node(curr);
             dtmc.mgr.ref_node(next);
-            let eq = dtmc.mgr.bdd_equals(curr, next); // curr == next
+            let eq = dtmc.mgr.bdd_equals(curr, next);
             ident = dtmc.mgr.bdd_and(ident, eq);
         }
     }
+    let ident = dtmc.mgr.bdd_to_add(ident);
 
-    let mut commands_by_action: std::collections::HashMap<String, Vec<SymbolicCommand>> =
-        std::collections::HashMap::new();
+    let mut commands_by_action: HashMap<String, Vec<SymbolicCommand>> = HashMap::new();
     for cmd in &module.commands {
         let symbolic_cmd = translate_command(cmd, &module_local_vars, dtmc);
         assert!(
             cmd.labels.len() == 1,
             "DTMCs should have exactly one label per command after analysis"
         );
-        let action = &cmd.labels[0];
         commands_by_action
-            .entry(action.clone())
-            .or_insert_with(Vec::new)
+            .entry(cmd.labels[0].clone())
+            .or_default()
             .push(symbolic_cmd);
     }
-
-    let ident = dtmc.mgr.bdd_to_add(ident);
 
     SymbolicModule {
         ident,
@@ -382,49 +302,63 @@ fn translate_module(module: &Module, dtmc: &mut SymbolicDTMC) -> SymbolicModule 
     }
 }
 
+/// Translate every module to symbolic form.
 fn translate_modules(dtmc: &mut SymbolicDTMC) -> HashMap<String, SymbolicModule> {
-    dtmc.ast
-        .modules
+    let modules = dtmc.ast.modules.clone();
+    modules
         .iter()
         .map(|module| (module.name.clone(), translate_module(module, dtmc)))
         .collect()
 }
 
+/// Build and normalize the global DTMC transition ADD.
 fn translate_dtmc(dtmc: &mut SymbolicDTMC) {
     let symbolic_modules = translate_modules(dtmc);
 
     let mut transitions = dtmc.mgr.add_zero();
-    for (act, act_modules) in dtmc.info.modules_of_act.iter() {
+    for (act, act_modules) in &dtmc.info.modules_of_act {
         debug!("Action '{}' is part of {:?}", act, act_modules);
         let mut act_trans = dtmc.mgr.add_const(1.0);
+
         for module_name in dtmc.ast.modules.iter().map(|m| &m.name) {
             if act_modules.contains(module_name) {
                 let mut act_mod_trans = dtmc.mgr.add_zero();
                 for cmd in &symbolic_modules[module_name].commands_by_action[act] {
+                    dtmc.mgr.ref_node(cmd.transition);
                     act_mod_trans = dtmc.mgr.add_plus(act_mod_trans, cmd.transition);
                 }
                 act_trans = dtmc.mgr.add_times(act_trans, act_mod_trans);
             } else {
-                // If the module doesn't have a command with this action, it should stay the same
                 let ident = symbolic_modules[module_name].ident;
+                dtmc.mgr.ref_node(ident);
                 act_trans = dtmc.mgr.add_times(act_trans, ident);
             }
         }
+
         transitions = dtmc.mgr.add_plus(transitions, act_trans);
     }
 
+    for module in symbolic_modules.values() {
+        dtmc.mgr.deref_node(module.ident);
+        for cmds in module.commands_by_action.values() {
+            for cmd in cmds {
+                dtmc.mgr.deref_node(cmd.transition);
+            }
+        }
+    }
+
     transitions = dtmc.mgr.unif(transitions, dtmc.next_var_cube);
+    dtmc.mgr.deref_node(dtmc.transitions);
     dtmc.transitions = transitions;
 }
 
-pub fn build_symbolic_dtmc<'a>(
-    ast: &'a DTMCAst,
-    model_info: &'a DTMCModelInfo,
-) -> SymbolicDTMC<'a> {
+/// Top-level symbolic DTMC construction pipeline.
+pub fn build_symbolic_dtmc(ast: DTMCAst, model_info: DTMCModelInfo) -> SymbolicDTMC {
     let mut dtmc = SymbolicDTMC::new(ast, model_info);
     allocate_dd_vars(&mut dtmc);
     translate_dtmc(&mut dtmc);
     compute_reachable_and_filter(&mut dtmc);
+
     dtmc.mgr
         .dump_add_dot(dtmc.transitions, "tmp.dot", &dtmc.dd_var_names)
         .unwrap();
@@ -435,13 +369,16 @@ pub fn build_symbolic_dtmc<'a>(
 mod tests {
     use std::collections::HashMap;
 
-    use lumindd::{Manager, NodeId};
+    use lumindd::NodeId;
 
-    use crate::{analyze::analyze_dtmc, parser::parse_dtmc};
+    use crate::{
+        analyze::analyze_dtmc, parser::parse_dtmc, ref_manager::RefManager,
+        symbolic_dtmc::SymbolicDTMC,
+    };
 
-    use super::*;
+    use super::build_symbolic_dtmc;
 
-    fn eval_add(mgr: &Manager, node: NodeId, assignment: &HashMap<u16, bool>) -> f64 {
+    fn eval_add(mgr: &RefManager, node: NodeId, assignment: &HashMap<u16, bool>) -> f64 {
         let reg = node.regular();
         let var = mgr.read_var_index(reg);
         if var == u16::MAX {
@@ -456,7 +393,12 @@ mod tests {
         eval_add(mgr, child, assignment)
     }
 
-    fn set_bits(mgr: &Manager, vars: &[NodeId], value: i32, assignment: &mut HashMap<u16, bool>) {
+    fn set_bits(
+        mgr: &RefManager,
+        vars: &[NodeId],
+        value: i32,
+        assignment: &mut HashMap<u16, bool>,
+    ) {
         for (i, node) in vars.iter().enumerate() {
             let idx = mgr.read_var_index(node.regular());
             assignment.insert(idx, (value & (1 << i)) != 0);
@@ -464,7 +406,7 @@ mod tests {
     }
 
     fn trans_prob(dtmc: &SymbolicDTMC, s: i32, sp: i32) -> f64 {
-        let mgr = &dtmc.mgr.inner;
+        let mgr = &dtmc.mgr;
         let mut assignment = HashMap::new();
         set_bits(mgr, &dtmc.var_curr_nodes["s"], s, &mut assignment);
         set_bits(mgr, &dtmc.var_next_nodes["s"], sp, &mut assignment);
@@ -472,7 +414,7 @@ mod tests {
     }
 
     fn trans_prob_knuth(dtmc: &SymbolicDTMC, s: i32, d: i32, sp: i32, dp: i32) -> f64 {
-        let mgr = &dtmc.mgr.inner;
+        let mgr = &dtmc.mgr;
         let mut assignment = HashMap::new();
         set_bits(mgr, &dtmc.var_curr_nodes["s"], s, &mut assignment);
         set_bits(mgr, &dtmc.var_curr_nodes["d"], d, &mut assignment);
@@ -486,7 +428,7 @@ mod tests {
         let model = include_str!("../tests/dtmc/simple_dtmc.prism");
         let mut ast = parse_dtmc(model).expect("parse failed");
         let info = analyze_dtmc(&mut ast).expect("analysis failed");
-        let dtmc = build_symbolic_dtmc(&ast, &info);
+        let dtmc = build_symbolic_dtmc(ast, info);
 
         let p01 = trans_prob(&dtmc, 0, 1);
         let p02 = trans_prob(&dtmc, 0, 2);
@@ -516,7 +458,7 @@ mod tests {
         let model = include_str!("../tests/dtmc/simple_dtmc.prism");
         let mut ast = parse_dtmc(model).expect("parse failed");
         let info = analyze_dtmc(&mut ast).expect("analysis failed");
-        let dtmc = build_symbolic_dtmc(&ast, &info);
+        let dtmc = build_symbolic_dtmc(ast, info);
 
         let p = trans_prob(&dtmc, 3, 0);
         assert!(
@@ -530,7 +472,7 @@ mod tests {
         let model = include_str!("../tests/dtmc/knuth_die.prism");
         let mut ast = parse_dtmc(model).expect("parse failed");
         let info = analyze_dtmc(&mut ast).expect("analysis failed");
-        let dtmc = build_symbolic_dtmc(&ast, &info);
+        let dtmc = build_symbolic_dtmc(ast, info);
 
         let reachable_states = [
             (0, 0),
@@ -570,10 +512,8 @@ mod tests {
             );
         }
 
-        // PRISM reports 20 transitions for this model.
         assert_eq!(transitions, 20, "transition count mismatch: {transitions}");
 
-        // Example unreachable state: (s=1,d=1) should have no outgoing mass after filtering.
         let mut unreachable_row_sum = 0.0;
         for sp in 0..=7 {
             for dp in 0..=6 {
