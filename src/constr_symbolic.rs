@@ -6,7 +6,7 @@ use tracing::{debug, trace};
 use crate::analyze::DTMCModelInfo;
 use crate::ast::*;
 use crate::reachability::compute_reachable_and_filter;
-use crate::ref_manager::{AddNode, BddNode, NodeId};
+use crate::ref_manager::{AddNode, BddNode, Node};
 use crate::symbolic_dtmc::SymbolicDTMC;
 
 /// Internal symbolic representation of a single command.
@@ -51,9 +51,9 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
             };
 
             let mgr = &mut dtmc.mgr;
-            let nodes: Vec<NodeId> = (0..num_bits * 2).map(|_| mgr.new_var().0).collect();
-            let curr_nodes: Vec<NodeId> = nodes.chunks(2).map(|c| c[0]).collect();
-            let next_nodes: Vec<NodeId> = nodes.chunks(2).map(|c| c[1]).collect();
+            let nodes: Vec<Node> = (0..num_bits * 2).map(|_| mgr.new_var().0).collect();
+            let curr_nodes: Vec<Node> = nodes.chunks(2).map(|c| c[0]).collect();
+            let next_nodes: Vec<Node> = nodes.chunks(2).map(|c| c[1]).collect();
 
             for (i, &curr) in curr_nodes.iter().enumerate() {
                 dtmc.dd_var_names

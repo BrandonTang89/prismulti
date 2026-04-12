@@ -20,17 +20,18 @@ use std::{
 };
 
 use cudd_sys::{
-    cudd::{
-        Cudd_BddToAdd, Cudd_CheckZeroRef, Cudd_CountMinterm, Cudd_DagSize, Cudd_DebugCheck, Cudd_E,
-        Cudd_ForeachNode, Cudd_IsComplement, Cudd_IsConstant, Cudd_NodeReadIndex, Cudd_Not,
-        Cudd_Quit, Cudd_ReadLogicZero, Cudd_ReadOne, Cudd_RecursiveDeref, Cudd_Ref, Cudd_Regular,
-        Cudd_T, Cudd_V, Cudd_addApply, Cudd_addBddPattern, Cudd_addBddThreshold, Cudd_addConst,
-        Cudd_addDivide, Cudd_addExistAbstract, Cudd_addIte, Cudd_addIthVar, Cudd_addMinus,
-        Cudd_addPlus, Cudd_addTimes, Cudd_bddAnd, Cudd_bddAndAbstract, Cudd_bddExistAbstract,
-        Cudd_bddIthVar, Cudd_bddNewVar, Cudd_bddOr, Cudd_bddSwapVariables, Cudd_bddXnor,
-        Cudd_bddXor, CUDD_CACHE_SLOTS, CUDD_UNIQUE_SLOTS, DD_APPLY_OPERATOR,
-    },
     DdManager, DdNode,
+    cudd::{
+        CUDD_CACHE_SLOTS, CUDD_UNIQUE_SLOTS, Cudd_BddToAdd, Cudd_CheckZeroRef, Cudd_CountMinterm,
+        Cudd_DagSize, Cudd_DebugCheck, Cudd_E, Cudd_ForeachNode, Cudd_IsComplement,
+        Cudd_IsConstant, Cudd_NodeReadIndex, Cudd_Not, Cudd_Quit, Cudd_ReadLogicZero, Cudd_ReadOne,
+        Cudd_RecursiveDeref, Cudd_Ref, Cudd_Regular, Cudd_T, Cudd_V, Cudd_addApply,
+        Cudd_addBddPattern, Cudd_addBddThreshold, Cudd_addConst, Cudd_addDivide,
+        Cudd_addExistAbstract, Cudd_addIte, Cudd_addIthVar, Cudd_addMinus, Cudd_addPlus,
+        Cudd_addTimes, Cudd_bddAnd, Cudd_bddAndAbstract, Cudd_bddExistAbstract, Cudd_bddIthVar,
+        Cudd_bddNewVar, Cudd_bddOr, Cudd_bddSwapVariables, Cudd_bddXnor, Cudd_bddXor,
+        DD_APPLY_OPERATOR,
+    },
 };
 
 const EPS: f64 = 1e-10;
@@ -51,15 +52,15 @@ pub struct AddStats {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 /// Opaque raw pointer identity for CUDD nodes.
-pub struct NodeId(*mut DdNode);
+pub struct Node(*mut DdNode);
 
-impl std::fmt::Debug for NodeId {
+impl std::fmt::Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "N{:x}", self.0 as usize)
     }
 }
 
-impl NodeId {
+impl Node {
     #[inline]
     fn as_ptr(self) -> *mut DdNode {
         self.0
@@ -68,13 +69,13 @@ impl NodeId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 /// Typed wrapper for BDD nodes.
-pub struct BddNode(pub NodeId);
+pub struct BddNode(pub Node);
 
 impl BddNode {
     #[inline]
     /// Returns the regular (non-complemented) view of this node.
     pub fn regular(self) -> Self {
-        Self(NodeId(unsafe { Cudd_Regular(self.0.as_ptr()) }))
+        Self(Node(unsafe { Cudd_Regular(self.0.as_ptr()) }))
     }
 
     #[inline]
@@ -86,7 +87,7 @@ impl BddNode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 /// Typed wrapper for ADD nodes.
-pub struct AddNode(pub NodeId);
+pub struct AddNode(pub Node);
 
 /// Owns a CUDD manager and provides typed BDD/ADD operations.
 pub struct RefManager {
@@ -135,54 +136,54 @@ impl RefManager {
     }
 
     /// Returns CUDD's shared BDD one node without changing references.
-    pub fn one_bdd(&self) -> BddNode {
-        BddNode(NodeId(unsafe { Cudd_ReadOne(self.mgr) }))
+    fn one_bdd(&self) -> BddNode {
+        BddNode(Node(unsafe { Cudd_ReadOne(self.mgr) }))
     }
 
     fn zero_bdd(&self) -> BddNode {
-        BddNode(NodeId(unsafe { Cudd_ReadLogicZero(self.mgr) }))
+        BddNode(Node(unsafe { Cudd_ReadLogicZero(self.mgr) }))
     }
 
-    fn must_node(&self, p: *mut DdNode, op: &str) -> NodeId {
+    fn must_node(&self, p: *mut DdNode, op: &str) -> Node {
         assert!(!p.is_null(), "CUDD returned NULL in {op}");
-        NodeId(p)
+        Node(p)
     }
 
     #[inline]
-    fn regular_node(&self, node: NodeId) -> NodeId {
-        NodeId(unsafe { Cudd_Regular(node.as_ptr()) })
+    fn regular_node(&self, node: Node) -> Node {
+        Node(unsafe { Cudd_Regular(node.as_ptr()) })
     }
 
     #[inline]
-    fn is_complemented_node(&self, node: NodeId) -> bool {
+    fn is_complemented_node(&self, node: Node) -> bool {
         unsafe { Cudd_IsComplement(node.as_ptr()) != 0 }
     }
 
-    fn add_apply(&self, op: DD_APPLY_OPERATOR, a: NodeId, b: NodeId, op_name: &str) -> NodeId {
+    fn add_apply(&self, op: DD_APPLY_OPERATOR, a: Node, b: Node, op_name: &str) -> Node {
         self.must_node(
             unsafe { Cudd_addApply(self.mgr, op, a.as_ptr(), b.as_ptr()) },
             op_name,
         )
     }
 
-    fn track_ref(&mut self, node: NodeId) {
+    fn track_ref(&mut self, node: Node) {
         let reg = self.regular_node(node);
         unsafe { Cudd_Ref(reg.as_ptr()) };
     }
 
-    fn track_deref(&mut self, node: NodeId) {
+    fn track_deref(&mut self, node: Node) {
         let reg = self.regular_node(node);
         unsafe { Cudd_RecursiveDeref(self.mgr, reg.as_ptr()) };
     }
 
     /// Increments the CUDD reference count of `node` and returns it.
-    pub fn ref_node(&mut self, node: NodeId) -> NodeId {
+    pub fn ref_node(&mut self, node: Node) -> Node {
         self.track_ref(node);
         node
     }
 
     /// Decrements the CUDD reference count of `node` and returns it.
-    pub fn deref_node(&mut self, node: NodeId) -> NodeId {
+    pub fn deref_node(&mut self, node: Node) -> Node {
         self.track_deref(node);
         node
     }
@@ -199,7 +200,7 @@ impl RefManager {
     }
 
     /// Reads the variable index for `node`, or `u16::MAX` for constants.
-    pub fn read_var_index(&self, node: NodeId) -> u16 {
+    pub fn read_var_index(&self, node: Node) -> u16 {
         let reg = self.regular_node(node);
         if self.is_constant(node) {
             u16::MAX
@@ -209,24 +210,24 @@ impl RefManager {
     }
 
     /// Returns the THEN child of a non-terminal node, else the node itself.
-    pub fn read_then(&self, node: NodeId) -> NodeId {
+    pub fn read_then(&self, node: Node) -> Node {
         let reg = self.regular_node(node);
         if self.is_constant(node) {
             reg
         } else {
-            NodeId(unsafe { Cudd_T(reg.as_ptr()) })
+            Node(unsafe { Cudd_T(reg.as_ptr()) })
         }
     }
 
     /// Returns the ELSE child of a node, preserving complement semantics.
-    pub fn read_else(&self, node: NodeId) -> NodeId {
+    pub fn read_else(&self, node: Node) -> Node {
         let reg = self.regular_node(node);
         if self.is_constant(node) {
             reg
         } else {
-            let e = NodeId(unsafe { Cudd_E(reg.as_ptr()) });
+            let e = Node(unsafe { Cudd_E(reg.as_ptr()) });
             if self.is_complemented_node(node) {
-                NodeId(unsafe { Cudd_Not(e.as_ptr()) })
+                Node(unsafe { Cudd_Not(e.as_ptr()) })
             } else {
                 e
             }
@@ -234,13 +235,13 @@ impl RefManager {
     }
 
     /// Returns `true` if `node` is a terminal (constant) node.
-    pub fn is_constant(&self, node: NodeId) -> bool {
+    pub fn is_constant(&self, node: Node) -> bool {
         let reg = self.regular_node(node);
         unsafe { Cudd_IsConstant(reg.as_ptr()) != 0 }
     }
 
     /// Returns the terminal value for constant nodes, otherwise `None`.
-    pub fn add_value(&self, node: NodeId) -> Option<f64> {
+    pub fn add_value(&self, node: Node) -> Option<f64> {
         let reg = self.regular_node(node);
         if self.is_constant(node) {
             let v = unsafe { Cudd_V(reg.as_ptr()) };
@@ -292,7 +293,7 @@ impl RefManager {
     /// _Refs_: result\
     /// _Derefs_: a
     pub fn bdd_not(&mut self, a: BddNode) -> BddNode {
-        let n = NodeId(unsafe { Cudd_Not(a.0.as_ptr()) });
+        let n = Node(unsafe { Cudd_Not(a.0.as_ptr()) });
         self.ref_node(n);
         self.deref_node(a.0);
         BddNode(n)
@@ -641,21 +642,21 @@ impl RefManager {
     }
 
     /// Returns the number of DAG nodes reachable from `root`.
-    pub fn dag_size(&self, root: NodeId) -> usize {
+    pub fn dag_size(&self, root: Node) -> usize {
         let root = self.regular_node(root);
         unsafe { Cudd_DagSize(root.as_ptr()) as usize }
     }
 
     /// Iterates all nodes reachable from `root` and invokes `f` for each.
-    pub fn foreach_node<F: FnMut(NodeId)>(&self, root: NodeId, mut f: F) {
+    pub fn foreach_node<F: FnMut(Node)>(&self, root: Node, mut f: F) {
         let root = self.regular_node(root);
         unsafe {
-            Cudd_ForeachNode(self.mgr, root.as_ptr(), |n| f(NodeId(n)));
+            Cudd_ForeachNode(self.mgr, root.as_ptr(), |n| f(Node(n)));
         }
     }
 
     /// Collects all unique terminal nodes reachable from `root`.
-    pub fn terminal_nodes(&self, root: NodeId) -> Vec<NodeId> {
+    pub fn terminal_nodes(&self, root: Node) -> Vec<Node> {
         let mut out = Vec::new();
         self.foreach_node(root, |n| {
             if self.is_constant(n) {
@@ -668,12 +669,12 @@ impl RefManager {
     }
 
     /// Returns the number of unique terminal nodes under `root`.
-    pub fn num_terminals(&self, root: NodeId) -> usize {
+    pub fn num_terminals(&self, root: Node) -> usize {
         self.terminal_nodes(root).len()
     }
 
     /// Alias for `dag_size`.
-    pub fn num_nodes(&self, node: NodeId) -> usize {
+    pub fn num_nodes(&self, node: Node) -> usize {
         self.dag_size(node)
     }
 
@@ -693,7 +694,7 @@ impl RefManager {
         }
     }
 
-    fn var_index_label_map(&self, var_names: &HashMap<NodeId, String>) -> HashMap<u16, String> {
+    fn var_index_label_map(&self, var_names: &HashMap<Node, String>) -> HashMap<u16, String> {
         let mut labels = HashMap::new();
         for (&node, name) in var_names {
             let var_index = self.read_var_index(node);
@@ -711,7 +712,7 @@ impl RefManager {
             .unwrap_or_else(|| format!("x{}", var_index))
     }
 
-    fn intern_id(ids: &mut HashMap<NodeId, usize>, next_id: &mut usize, n: NodeId) -> usize {
+    fn intern_id(ids: &mut HashMap<Node, usize>, next_id: &mut usize, n: Node) -> usize {
         *ids.entry(n).or_insert_with(|| {
             let id = *next_id;
             *next_id += 1;
@@ -729,15 +730,15 @@ impl RefManager {
         &self,
         root: AddNode,
         path: &str,
-        var_names: &HashMap<NodeId, String>,
+        var_names: &HashMap<Node, String>,
     ) -> io::Result<()> {
         let mut out = File::create(path)?;
         writeln!(out, "digraph ADD {{")?;
         writeln!(out, "  rankdir=TB;")?;
 
-        let mut ids: HashMap<NodeId, usize> = HashMap::new();
+        let mut ids: HashMap<Node, usize> = HashMap::new();
         let mut next_id = 0usize;
-        let mut visited: HashSet<NodeId> = HashSet::new();
+        let mut visited: HashSet<Node> = HashSet::new();
         let labels = self.var_index_label_map(var_names);
 
         let root_reg = self.regular_node(root.0);
@@ -755,12 +756,12 @@ impl RefManager {
 
     fn dump_add_dot_rec<W: Write>(
         &self,
-        n: NodeId,
+        n: Node,
         out: &mut W,
         labels: &HashMap<u16, String>,
-        ids: &mut HashMap<NodeId, usize>,
+        ids: &mut HashMap<Node, usize>,
         next_id: &mut usize,
-        visited: &mut HashSet<NodeId>,
+        visited: &mut HashSet<Node>,
     ) -> io::Result<()> {
         let n = self.regular_node(n);
         if !visited.insert(n) {
@@ -798,7 +799,7 @@ impl RefManager {
         &self,
         root: BddNode,
         path: &str,
-        var_names: &HashMap<NodeId, String>,
+        var_names: &HashMap<Node, String>,
     ) -> io::Result<()> {
         self.dump_add_dot(AddNode(root.0), path, var_names)
     }
@@ -806,7 +807,7 @@ impl RefManager {
     /// Builds an ADD that encodes the integer value of `nodes` as a bit-vector.
     ///
     /// Variable at index `i` contributes bit `2^i`.
-    pub fn get_encoding(&mut self, nodes: &[NodeId]) -> AddNode {
+    pub fn get_encoding(&mut self, nodes: &[Node]) -> AddNode {
         let mut result = self.add_const(0.0);
         let add_one = self.add_const(1.0);
 

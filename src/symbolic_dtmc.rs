@@ -4,7 +4,7 @@ use tracing::error;
 
 use crate::analyze::DTMCModelInfo;
 use crate::ast::DTMCAst;
-use crate::ref_manager::{AddNode, BddNode, NodeId, RefManager};
+use crate::ref_manager::{AddNode, BddNode, Node, RefManager};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefLeakReport {
@@ -26,12 +26,12 @@ pub struct SymbolicDTMC {
     pub info: DTMCModelInfo,
 
     /// Variable name -> current-state DD bit nodes (LSB..MSB).
-    pub var_curr_nodes: HashMap<String, Vec<NodeId>>,
+    pub var_curr_nodes: HashMap<String, Vec<Node>>,
     /// Variable name -> next-state DD bit nodes (LSB..MSB).
-    pub var_next_nodes: HashMap<String, Vec<NodeId>>,
+    pub var_next_nodes: HashMap<String, Vec<Node>>,
 
     /// DD node -> human-friendly name used in DOT output.
-    pub dd_var_names: HashMap<NodeId, String>,
+    pub dd_var_names: HashMap<Node, String>,
 
     /// 0-1 ADD cube over all next-state variables.
     pub next_var_cube: BddNode,
