@@ -4,7 +4,7 @@ use tracing::error;
 
 use crate::analyze::DTMCModelInfo;
 use crate::ast::DTMCAst;
-use crate::ref_manager::{NodeId, RefManager, LEAK_REPORT_LIMIT};
+use crate::ref_manager::{Add01Node, AddNode, NodeId, RefManager, LEAK_REPORT_LIMIT};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefLeakReport {
@@ -34,15 +34,15 @@ pub struct SymbolicDTMC {
     /// DD node -> human-friendly name used in DOT output.
     pub dd_var_names: HashMap<NodeId, String>,
 
-    /// BDD cube over all next-state variables.
-    pub next_var_cube: NodeId,
-    /// BDD cube over all current-state variables.
-    pub curr_var_cube: NodeId,
+    /// 0-1 ADD cube over all next-state variables.
+    pub next_var_cube: Add01Node,
+    /// 0-1 ADD cube over all current-state variables.
+    pub curr_var_cube: Add01Node,
 
     /// ADD transition relation P(s,s').
-    pub transitions: NodeId,
-    /// 0-1 BDD support of filtered transitions.
-    pub transitions_01_bdd: NodeId,
+    pub transitions: AddNode,
+    /// 0-1 ADD support of filtered transitions.
+    pub transitions_01_add: Add01Node,
 
     /// Number of reachable states computed by BFS during construction.
     pub reachable_states: u64,
@@ -55,9 +55,9 @@ impl SymbolicDTMC {
     pub fn new(ast: DTMCAst, info: DTMCModelInfo) -> Self {
         let mut mgr = RefManager::new();
         let transitions = mgr.add_zero();
-        let transitions_01_bdd = mgr.bdd_zero();
-        let next_var_cube = mgr.bdd_one();
-        let curr_var_cube = mgr.bdd_one();
+        let transitions_01_add = mgr.add01_zero();
+        let next_var_cube = mgr.add01_one();
+        let curr_var_cube = mgr.add01_one();
 
         Self {
             mgr,
@@ -69,7 +69,7 @@ impl SymbolicDTMC {
             next_var_cube,
             curr_var_cube,
             transitions,
-            transitions_01_bdd,
+            transitions_01_add,
             reachable_states: 0,
             released: false,
         }
@@ -100,10 +100,10 @@ impl SymbolicDTMC {
             };
         }
 
-        self.mgr.deref_node(self.transitions);
-        self.mgr.deref_node(self.transitions_01_bdd);
-        self.mgr.deref_node(self.curr_var_cube);
-        self.mgr.deref_node(self.next_var_cube);
+        self.mgr.deref_node(self.transitions.0);
+        self.mgr.deref_node(self.transitions_01_add.0);
+        self.mgr.deref_node(self.curr_var_cube.0);
+        self.mgr.deref_node(self.next_var_cube.0);
 
         for nodes in self.var_curr_nodes.values() {
             for &node in nodes {
@@ -141,8 +141,8 @@ impl SymbolicDTMC {
 
         desc.push(format!("Transitions ADD node ID: {:?}\n", self.transitions));
         desc.push(format!(
-            "Transitions 0-1 BDD node ID: {:?}\n",
-            self.transitions_01_bdd
+            "Transitions 0-1 ADD node ID: {:?}\n",
+            self.transitions_01_add
         ));
 
         let (curr_bits, next_bits) = self.state_variable_counts();

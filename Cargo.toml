@@ -9,7 +9,7 @@ lalrpop = "0.23.1"
 [dependencies]
 lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
 clap = { version = "4.6.0", features = ["derive"] }
-lumindd = "1.0.0"
+cudd-sys = "1.1.2-alpha.2"
 anyhow = "1.0.102"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
