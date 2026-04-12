@@ -518,6 +518,7 @@ impl RefManager {
         let mut terminal_count = 0usize;
         self.count_nodes_and_terminals(root, &mut visited, &mut terminal_count);
 
+        self.ref_node(root);
         let bdd = self.add_to_bdd(root);
         let minterms = self.bdd_count_minterms(bdd, num_vars);
         self.deref_node(bdd);

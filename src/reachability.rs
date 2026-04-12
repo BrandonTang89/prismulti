@@ -74,6 +74,73 @@ fn curr_next_var_indices(dtmc: &SymbolicDTMC) -> (Vec<u16>, Vec<u16>) {
     (curr_indices, next_indices)
 }
 
+fn build_curr_next_identity_bdd(dtmc: &mut SymbolicDTMC) -> lumindd::NodeId {
+    let mut ident = dtmc.mgr.bdd_one();
+    for module in &dtmc.ast.modules {
+        for var_decl in &module.local_vars {
+            let var_name = &var_decl.name;
+            let curr_nodes = dtmc.var_curr_nodes[var_name].clone();
+            let next_nodes = dtmc.var_next_nodes[var_name].clone();
+            for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
+                dtmc.mgr.ref_node(curr);
+                dtmc.mgr.ref_node(next);
+                let eq = dtmc.mgr.bdd_equals(curr, next);
+                ident = dtmc.mgr.bdd_and(ident, eq);
+            }
+        }
+    }
+    ident
+}
+
+fn add_dead_end_self_loops(dtmc: &mut SymbolicDTMC, reachable: lumindd::NodeId) {
+    dtmc.mgr.ref_node(dtmc.transitions_01_bdd);
+    let out_curr = dtmc
+        .mgr
+        .bdd_or_abstract(dtmc.transitions_01_bdd, dtmc.next_var_cube);
+
+    dtmc.mgr.ref_node(out_curr);
+    let not_out_curr = dtmc.mgr.bdd_not(out_curr);
+
+    dtmc.mgr.ref_node(reachable);
+    let dead_end_curr = dtmc.mgr.bdd_and(reachable, not_out_curr);
+    dtmc.mgr.deref_node(out_curr);
+
+    dtmc.mgr.ref_node(dead_end_curr);
+    let dead_end_add_for_count = dtmc.mgr.bdd_to_add(dead_end_curr);
+    let dead_end_count_add = dtmc
+        .mgr
+        .add_sum_abstract(dead_end_add_for_count, dtmc.curr_var_cube);
+    let dead_end_count = dtmc
+        .mgr
+        .add_value(dead_end_count_add.regular())
+        .unwrap_or(0.0)
+        .round() as u64;
+    dtmc.mgr.deref_node(dead_end_count_add);
+
+    if dead_end_count > 0 {
+        let curr_next_eq = build_curr_next_identity_bdd(dtmc);
+        dtmc.mgr.ref_node(dead_end_curr);
+        let self_loops_bdd = dtmc.mgr.bdd_and(dead_end_curr, curr_next_eq);
+
+        let old_bdd = dtmc.transitions_01_bdd;
+        dtmc.mgr.ref_node(old_bdd);
+        dtmc.mgr.ref_node(self_loops_bdd);
+        dtmc.transitions_01_bdd = dtmc.mgr.bdd_or(old_bdd, self_loops_bdd);
+        dtmc.mgr.deref_node(old_bdd);
+
+        dtmc.mgr.ref_node(self_loops_bdd);
+        let self_loops_add = dtmc.mgr.bdd_to_add(self_loops_bdd);
+        let old_add = dtmc.transitions;
+        dtmc.mgr.ref_node(old_add);
+        dtmc.transitions = dtmc.mgr.add_plus(old_add, self_loops_add);
+        dtmc.mgr.deref_node(old_add);
+        dtmc.mgr.deref_node(self_loops_bdd);
+    }
+
+    println!("Added self-loops to {} dead-end states", dead_end_count);
+    dtmc.mgr.deref_node(dead_end_curr);
+}
+
 /// Compute least fixed-point reachability and filter transition relation.
 ///
 /// Steps:
@@ -138,6 +205,9 @@ pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
     let old_bdd = dtmc.transitions_01_bdd;
     dtmc.transitions_01_bdd = filtered_01_bdd;
     dtmc.mgr.deref_node(old_bdd);
+
+    add_dead_end_self_loops(dtmc, reachable);
+
     dtmc.mgr.deref_node(reachable);
     dtmc.mgr.deref_node(trans_bdd);
 }

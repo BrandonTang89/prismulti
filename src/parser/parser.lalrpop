@@ -21,7 +21,35 @@ Comma<T>: Vec<T> = {
 };
 
 pub DTMC: DTMCAst = {
-    "dtmc" <modules:Module*> => DTMCAst { modules }
+    "dtmc" <items:TopLevelItem*> => {
+        let mut modules = Vec::new();
+        let mut constants = Vec::new();
+
+        for (mut item_modules, mut item_constants) in items {
+            modules.append(&mut item_modules);
+            constants.append(&mut item_constants);
+        }
+
+        DTMCAst { modules, constants }
+    }
+};
+
+TopLevelItem: (Vec<Module>, Vec<(String, ConstDecl)>) = {
+    <module:Module> => (vec![module], vec![]),
+    <constant:ConstDeclStmt> => (vec![], vec![constant]),
+};
+
+ConstTypeDecl: ConstType = {
+    "bool" => ConstType::Bool,
+    "int" => ConstType::Int,
+    "float" => ConstType::Float,
+};
+
+ConstDeclStmt: (String, ConstDecl) = {
+    "const" <const_type:ConstTypeDecl> <name:Ident> "=" <value:Expr> ";"
+        => (name, ConstDecl { const_type, value: Some(value) }),
+    "const" <const_type:ConstTypeDecl> <name:Ident> ";"
+        => (name, ConstDecl { const_type, value: None }),
 };
 
 Module: Module = {
@@ -32,8 +60,14 @@ Module: Module = {
 VarDecl: VarDecl = {
     <name:Ident> ":" "bool" "init" <init:Expr> ";"
         => VarDecl { name, var_type: VarType::Bool, init },
+    <name:Ident> ":" "bool" ";"
+        => VarDecl { name, var_type: VarType::Bool, init: Box::new(Expr::BoolLit(false)) },
     <name:Ident> ":" "[" <lo:Expr> ".." <hi:Expr> "]" "init" <init:Expr> ";"
         => VarDecl { name, var_type: VarType::BoundedInt { lo, hi }, init },
+    <name:Ident> ":" "[" <lo:Expr> ".." <hi:Expr> "]" ";" => {
+        let init = lo.clone();
+        VarDecl { name, var_type: VarType::BoundedInt { lo, hi }, init }
+    },
 };
 
 Command: Command = {
@@ -75,6 +109,36 @@ Expr: Box<Expr> = {
     r"[0-9]+\.[0-9]+" => Box::new(Expr::FloatLit(f64::from_str(<>).unwrap())),
     "false" => Box::new(Expr::BoolLit(false)),
     "true" => Box::new(Expr::BoolLit(true)),
+    "(" <lhs:Ident> "=" <rhs:Expr> ")" => Box::new(Expr::BinOp {
+        lhs: Box::new(Expr::Ident(lhs)),
+        op: BinOp::Eq,
+        rhs,
+    }),
+    "(" <lhs:Ident> "!=" <rhs:Expr> ")" => Box::new(Expr::BinOp {
+        lhs: Box::new(Expr::Ident(lhs)),
+        op: BinOp::Neq,
+        rhs,
+    }),
+    "(" <lhs:Ident> "<" <rhs:Expr> ")" => Box::new(Expr::BinOp {
+        lhs: Box::new(Expr::Ident(lhs)),
+        op: BinOp::Lt,
+        rhs,
+    }),
+    "(" <lhs:Ident> "<=" <rhs:Expr> ")" => Box::new(Expr::BinOp {
+        lhs: Box::new(Expr::Ident(lhs)),
+        op: BinOp::Leq,
+        rhs,
+    }),
+    "(" <lhs:Ident> ">" <rhs:Expr> ")" => Box::new(Expr::BinOp {
+        lhs: Box::new(Expr::Ident(lhs)),
+        op: BinOp::Gt,
+        rhs,
+    }),
+    "(" <lhs:Ident> ">=" <rhs:Expr> ")" => Box::new(Expr::BinOp {
+        lhs: Box::new(Expr::Ident(lhs)),
+        op: BinOp::Geq,
+        rhs,
+    }),
     <var:Ident> "'" => Box::new(Expr::PrimedIdent(var)),
     <var:Ident> => Box::new(Expr::Ident(var)),
     "(" <Expr> ")",
@@ -103,9 +167,11 @@ Expr: Box<Expr> = {
 
     #[precedence(level="7")] #[assoc(side="left")]
     <lhs:Expr> "&&" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::And, rhs }),
+    <lhs:Expr> "&" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::And, rhs }),
 
     #[precedence(level="8")] #[assoc(side="left")]
     <lhs:Expr> "||" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Or, rhs }),
+    <lhs:Expr> "|" <rhs:Expr> => Box::new(Expr::BinOp { lhs, op: BinOp::Or, rhs }),
 
     #[precedence(level="9")] #[assoc(side="right")]
     <cond:Expr> "?" <then_branch:Expr> ":" <else_branch:Expr>

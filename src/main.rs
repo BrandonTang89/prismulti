@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use clap::{Parser, ValueEnum};
 use prism_rs::parser::parse_dtmc;
 use tracing::Level;
@@ -20,6 +22,36 @@ struct Args {
 
     #[arg(short, long)]
     verbose: bool,
+
+    #[arg(long = "const")]
+    const_values: Option<String>,
+}
+
+fn parse_const_arg(input: &str) -> anyhow::Result<HashMap<String, String>> {
+    let mut map = HashMap::new();
+    if input.trim().is_empty() {
+        return Ok(map);
+    }
+
+    for pair in input.split(',') {
+        let trimmed = pair.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some((name, value)) = trimmed.split_once('=') else {
+            anyhow::bail!(
+                "Invalid --const entry '{}'. Expected NAME=VALUE pairs separated by commas.",
+                trimmed
+            );
+        };
+        let name = name.trim();
+        let value = value.trim();
+        if name.is_empty() {
+            anyhow::bail!("Invalid --const entry '{}': empty constant name.", trimmed);
+        }
+        map.insert(name.to_string(), value.to_string());
+    }
+    Ok(map)
 }
 
 fn main() {
@@ -35,6 +67,16 @@ fn main() {
     println!("{BANNER}");
 
     let args = Args::parse();
+    let const_overrides = match &args.const_values {
+        Some(v) => match parse_const_arg(v) {
+            Ok(map) => map,
+            Err(e) => {
+                eprintln!("Failed to parse --const: {e}");
+                return;
+            }
+        },
+        None => HashMap::new(),
+    };
 
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
@@ -58,7 +100,7 @@ fn main() {
                     return;
                 }
             };
-            let info = match prism_rs::analyze::analyze_dtmc(&mut ast) {
+            let info = match prism_rs::analyze::analyze_dtmc(&mut ast, &const_overrides) {
                 Ok(info) => {
                     println!("Model analysis successful:");
                     println!("  Module names: {:?}", info.module_names);

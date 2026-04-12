@@ -2,9 +2,24 @@
 #[derive(Clone, Debug)]
 pub struct DTMCAst {
     pub modules: Vec<Module>,
-    // constants
+    pub constants: Vec<(String, ConstDecl)>,
     // global vars
     // functions, etc.
+}
+
+/// Global constant declaration.
+#[derive(Clone, Debug)]
+pub struct ConstDecl {
+    pub const_type: ConstType,
+    pub value: Option<Box<Expr>>,
+}
+
+/// Supported constant types.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConstType {
+    Bool,
+    Int,
+    Float,
 }
 
 /// PRISM module declaration.
