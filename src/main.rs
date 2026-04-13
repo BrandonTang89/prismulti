@@ -10,7 +10,7 @@ use tracing_subscriber::FmtSubscriber;
 
 #[derive(ValueEnum, Clone, Debug)]
 enum ModelType {
-    DTMC,
+    Dtmc,
 }
 
 /// Command-line arguments.
@@ -129,7 +129,7 @@ fn main() {
 
     // Parse, analyze and construct the symbolic model for the selected type.
     match args.model_type {
-        ModelType::DTMC => {
+        ModelType::Dtmc => {
             println!("Parsing DTMC model from file: {}", args.model);
             let model_str =
                 std::fs::read_to_string(&args.model).expect("Failed to read model file");
