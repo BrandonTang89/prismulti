@@ -110,7 +110,10 @@ fn get_variable_encoding(dtmc: &mut SymbolicDTMC, var_name: &str, primed: bool) 
 }
 
 /// Translate an AST expression to a referenced ADD node.
-fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
+///
+/// This is shared by symbolic construction and symbolic property checking to
+/// keep state-formula semantics consistent.
+pub fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
     match expr {
         Expr::IntLit(i) => dtmc.mgr.add_const(*i as f64),
         Expr::FloatLit(f) => dtmc.mgr.add_const(*f),

@@ -20,18 +20,18 @@ use std::{
 };
 
 use cudd_sys::{
-    DdManager, DdNode,
     cudd::{
-        CUDD_CACHE_SLOTS, CUDD_UNIQUE_SLOTS, Cudd_BddToAdd, Cudd_CheckZeroRef, Cudd_CountMinterm,
-        Cudd_DagSize, Cudd_DebugCheck, Cudd_E, Cudd_ForeachNode, Cudd_IsComplement,
-        Cudd_IsConstant, Cudd_NodeReadIndex, Cudd_Not, Cudd_Quit, Cudd_ReadLogicZero, Cudd_ReadOne,
-        Cudd_RecursiveDeref, Cudd_Ref, Cudd_Regular, Cudd_T, Cudd_V, Cudd_addApply,
-        Cudd_addBddPattern, Cudd_addBddThreshold, Cudd_addConst, Cudd_addDivide,
-        Cudd_addExistAbstract, Cudd_addIte, Cudd_addIthVar, Cudd_addMinus, Cudd_addPlus,
-        Cudd_addTimes, Cudd_bddAnd, Cudd_bddAndAbstract, Cudd_bddExistAbstract, Cudd_bddIthVar,
-        Cudd_bddNewVar, Cudd_bddOr, Cudd_bddSwapVariables, Cudd_bddXnor, Cudd_bddXor,
+        Cudd_BddToAdd, Cudd_CheckZeroRef, Cudd_CountMinterm, Cudd_DagSize, Cudd_DebugCheck, Cudd_E,
+        Cudd_ForeachNode, Cudd_IsComplement, Cudd_IsConstant, Cudd_NodeReadIndex, Cudd_Not,
+        Cudd_Quit, Cudd_ReadLogicZero, Cudd_ReadOne, Cudd_RecursiveDeref, Cudd_Ref, Cudd_Regular,
+        Cudd_T, Cudd_V, Cudd_addApply, Cudd_addBddPattern, Cudd_addBddThreshold, Cudd_addConst,
+        Cudd_addDivide, Cudd_addExistAbstract, Cudd_addIte, Cudd_addIthVar, Cudd_addMatrixMultiply,
+        Cudd_addMinus, Cudd_addPlus, Cudd_addSwapVariables, Cudd_addTimes, Cudd_bddAnd,
+        Cudd_bddAndAbstract, Cudd_bddExistAbstract, Cudd_bddIthVar, Cudd_bddNewVar, Cudd_bddOr,
+        Cudd_bddSwapVariables, Cudd_bddXnor, Cudd_bddXor, CUDD_CACHE_SLOTS, CUDD_UNIQUE_SLOTS,
         DD_APPLY_OPERATOR,
     },
+    DdManager, DdNode,
 };
 
 const EPS: f64 = 1e-10;
@@ -429,6 +429,86 @@ impl RefManager {
         self.ref_node(n);
         self.deref_node(f.0);
         BddNode(n)
+    }
+
+    /// Swaps each variable in `x` with the corresponding variable in `y` for ADD `f`.
+    ///
+    /// Both index slices must have the same length.
+    ///
+    /// _Refs_: result\
+    /// _Derefs_: f
+    pub fn add_swap_variables(&mut self, f: AddNode, x: &[u16], y: &[u16]) -> AddNode {
+        assert_eq!(x.len(), y.len());
+        let mut xs = Vec::with_capacity(x.len());
+        let mut ys = Vec::with_capacity(y.len());
+        for (&xi, &yi) in x.iter().zip(y.iter()) {
+            xs.push(
+                self.must_node(
+                    unsafe { Cudd_bddIthVar(self.mgr, xi as i32) },
+                    "Cudd_bddIthVar(x)",
+                )
+                .as_ptr(),
+            );
+            ys.push(
+                self.must_node(
+                    unsafe { Cudd_bddIthVar(self.mgr, yi as i32) },
+                    "Cudd_bddIthVar(y)",
+                )
+                .as_ptr(),
+            );
+        }
+        let n = self.must_node(
+            unsafe {
+                Cudd_addSwapVariables(
+                    self.mgr,
+                    f.0.as_ptr(),
+                    xs.as_mut_ptr(),
+                    ys.as_mut_ptr(),
+                    x.len() as i32,
+                )
+            },
+            "Cudd_addSwapVariables",
+        );
+        self.ref_node(n);
+        self.deref_node(f.0);
+        AddNode(n)
+    }
+
+    /// Computes ADD matrix-vector/matrix multiplication over summation vars `z`.
+    ///
+    /// `a` is assumed to depend on row vars and `z`; `b` depends on `z` and optional
+    /// remaining vars. The result abstracts over `z`.
+    ///
+    /// _Refs_: result\
+    /// _Derefs_: a, b
+    pub fn add_matrix_multiply(&mut self, a: AddNode, b: AddNode, z: &[u16]) -> AddNode {
+        let mut z_vars = Vec::with_capacity(z.len());
+        for &zi in z {
+            z_vars.push(
+                self.must_node(
+                    unsafe { Cudd_bddIthVar(self.mgr, zi as i32) },
+                    "Cudd_bddIthVar(z)",
+                )
+                .as_ptr(),
+            );
+        }
+
+        let n = self.must_node(
+            unsafe {
+                Cudd_addMatrixMultiply(
+                    self.mgr,
+                    a.0.as_ptr(),
+                    b.0.as_ptr(),
+                    z_vars.as_mut_ptr(),
+                    z.len() as i32,
+                )
+            },
+            "Cudd_addMatrixMultiply",
+        );
+        self.ref_node(n);
+        self.deref_node(a.0);
+        self.deref_node(b.0);
+        AddNode(n)
     }
 
     /// Pointwise ADD addition of `a` and `b`.

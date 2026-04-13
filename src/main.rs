@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use clap::{Parser, ValueEnum};
 use prism_rs::parser::{parse_dtmc, parse_dtmc_props};
+use prism_rs::sym_check::{evaluate_property_at_initial_state, PropertyEvaluation};
 use tracing::Level;
+use tracing::{debug, info};
 use tracing_subscriber::FmtSubscriber;
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -25,6 +27,9 @@ struct Args {
 
     #[arg(long = "const")]
     const_values: Option<String>,
+
+    #[arg(long)]
+    prop_file: Option<String>,
 
     #[arg(long)]
     props: Option<String>,
@@ -57,6 +62,37 @@ fn parse_const_arg(input: &str) -> anyhow::Result<HashMap<String, String>> {
     Ok(map)
 }
 
+fn parse_prop_indices_arg(input: &str, property_count: usize) -> anyhow::Result<Vec<usize>> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut indices = Vec::new();
+    for token in trimmed.split(',') {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let idx = token
+            .parse::<usize>()
+            .map_err(|_| anyhow::anyhow!("Invalid --props entry '{}': expected integer", token))?;
+        if idx == 0 {
+            anyhow::bail!("Invalid --props entry '{}': indices are 1-based", token);
+        }
+        if idx > property_count {
+            anyhow::bail!(
+                "Invalid --props entry '{}': model has only {} properties",
+                token,
+                property_count
+            );
+        }
+        indices.push(idx - 1);
+    }
+
+    Ok(indices)
+}
+
 fn main() {
     const BANNER: &str = r#"
             _                                  
@@ -82,7 +118,11 @@ fn main() {
     };
 
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(if args.verbose {
+            Level::DEBUG
+        } else {
+            Level::INFO
+        })
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
@@ -104,7 +144,7 @@ fn main() {
                 }
             };
 
-            if let Some(props_path) = &args.props {
+            if let Some(props_path) = &args.prop_file {
                 println!("Parsing property file: {}", props_path);
                 let props_str = match std::fs::read_to_string(props_path) {
                     Ok(v) => v,
@@ -146,6 +186,43 @@ fn main() {
             let mut symbolic_dtmc = prism_rs::constr_symbolic::build_symbolic_dtmc(ast, info);
 
             println!("Symbolic DTMC:\n  {}", symbolic_dtmc.describe().join("  "));
+
+            if symbolic_dtmc.ast.properties.is_empty() {
+                info!("No properties found; skipping model checking");
+                return;
+            }
+
+            let selected = match &args.props {
+                Some(indices) => {
+                    match parse_prop_indices_arg(indices, symbolic_dtmc.ast.properties.len()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("Failed to parse --props: {e}");
+                            return;
+                        }
+                    }
+                }
+                None => (0..symbolic_dtmc.ast.properties.len()).collect(),
+            };
+
+            println!("Checking {} selected properties", selected.len());
+            for &prop_idx in &selected {
+                let prop_number = prop_idx + 1;
+                let property = symbolic_dtmc.ast.properties[prop_idx].clone();
+                info!("Checking property #{}: {}", prop_number, property);
+                match evaluate_property_at_initial_state(&mut symbolic_dtmc, &property) {
+                    Ok(PropertyEvaluation::Probability(value)) => {
+                        println!("  {}. {} = {}", prop_number, property, value);
+                    }
+                    Ok(PropertyEvaluation::Unsupported(reason)) => {
+                        println!("  {}. {} = unsupported ({})", prop_number, property, reason);
+                    }
+                    Err(e) => {
+                        eprintln!("  {}. {} = error: {}", prop_number, property, e);
+                    }
+                }
+                debug!("Finished property #{}", prop_number);
+            }
         }
     }
 }

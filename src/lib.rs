@@ -6,4 +6,5 @@ pub mod constr_symbolic;
 pub mod parser;
 pub mod reachability;
 pub mod ref_manager;
+pub mod sym_check;
 pub mod symbolic_dtmc;

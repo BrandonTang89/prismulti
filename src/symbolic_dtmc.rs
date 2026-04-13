@@ -46,6 +46,9 @@ pub struct SymbolicDTMC {
     /// Number of reachable states computed by BFS during construction.
     pub reachable_states: u64,
 
+    /// Reachable states over current-state variables as a 0-1 BDD.
+    pub reachable: BddNode,
+
     released: bool,
 }
 
@@ -57,6 +60,7 @@ impl SymbolicDTMC {
         let transitions_01_add = mgr.bdd_zero();
         let next_var_cube = mgr.bdd_one();
         let curr_var_cube = mgr.bdd_one();
+        let reachable = mgr.bdd_zero();
 
         Self {
             mgr,
@@ -70,6 +74,7 @@ impl SymbolicDTMC {
             transitions,
             transitions_01_add,
             reachable_states: 0,
+            reachable,
             released: false,
         }
     }
@@ -102,6 +107,7 @@ impl SymbolicDTMC {
         self.mgr.deref_node(self.transitions_01_add.0);
         self.mgr.deref_node(self.curr_var_cube.0);
         self.mgr.deref_node(self.next_var_cube.0);
+        self.mgr.deref_node(self.reachable.0);
 
         for nodes in self.var_curr_nodes.values() {
             for &node in nodes {

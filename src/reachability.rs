@@ -186,6 +186,9 @@ pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
         .unwrap_or(0.0)
         .round() as u64;
     dtmc.reachable_states = reachable_states;
+    dtmc.mgr.deref_node(dtmc.reachable.0);
+    dtmc.mgr.ref_node(reachable.0);
+    dtmc.reachable = reachable;
     dtmc.mgr.deref_node(reachable_count_add.0);
 
     println!(
