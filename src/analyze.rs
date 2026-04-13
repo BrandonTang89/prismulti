@@ -390,10 +390,7 @@ fn type_check_constant_declarations(
         let value_expr = decl
             .value
             .as_ref()
-            .expect("constants missing values are validated before type checking");
-        type_check_expr(value_expr, symbol_types)
-            .map_err(|e| anyhow!("In constant '{}': {}", name, e))?;
-
+            .expect("constant missing value should have been validated before type checking");
         let inferred = infer_expr_type(value_expr, symbol_types)
             .map_err(|e| anyhow!("In constant '{}': {}", name, e))?;
         let declared = const_type_to_kind(&decl.const_type);
