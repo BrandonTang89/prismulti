@@ -1,0 +1,7 @@
+const int x;
+
+P=? [ F s=7 & d=x ]
+
+P=? [X s=1]
+
+P=? [true U<=3 s=7]
