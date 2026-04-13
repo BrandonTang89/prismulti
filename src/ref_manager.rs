@@ -1002,6 +1002,12 @@ impl RefManager {
     }
 }
 
+impl Default for RefManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Drop for RefManager {
     fn drop(&mut self) {
         if !self.mgr.is_null() {

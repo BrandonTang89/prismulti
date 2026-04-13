@@ -140,9 +140,10 @@ fn infer_expr_type(expr: &Expr, symbol_types: &HashMap<String, TypeKind>) -> Res
                             rt.as_str()
                         )));
                     }
-                    if matches!(op, BinOp::Div) {
-                        Ok(TypeKind::Float)
-                    } else if lt == TypeKind::Float || rt == TypeKind::Float {
+                    if matches!(op, BinOp::Div)
+                        || lt == TypeKind::Float
+                        || rt == TypeKind::Float
+                    {
                         Ok(TypeKind::Float)
                     } else {
                         Ok(TypeKind::Int)
@@ -362,7 +363,7 @@ fn ensure_no_primed_idents(expr: &Expr, where_msg: &str) -> Result<()> {
 }
 
 fn apply_and_resolve_constants_for_decls(
-    constants: &mut Vec<(String, ConstDecl)>,
+    constants: &mut [(String, ConstDecl)],
     symbol_types: &HashMap<String, TypeKind>,
     const_overrides: &HashMap<String, String>,
     context: &str,
@@ -424,13 +425,13 @@ fn apply_and_resolve_constants_for_decls(
                 | (ConstType::Int, Expr::IntLit(_))
                 | (ConstType::Float, Expr::FloatLit(_)) => {
                     constant_values.insert(name.clone(), Some(folded.clone()));
-                    *value_expr = Box::new(folded);
+                    **value_expr = folded;
                     changed = true;
                 }
                 (ConstType::Float, Expr::IntLit(v)) => {
                     let as_float = Expr::FloatLit(*v as f64);
                     constant_values.insert(name.clone(), Some(as_float.clone()));
-                    *value_expr = Box::new(as_float);
+                    **value_expr = as_float;
                     changed = true;
                 }
                 _ => {}
@@ -789,23 +790,22 @@ pub fn analyze_dtmc(
                         op: BinOp::Eq,
                         rhs,
                     } = assignment.as_ref()
+                        && let Expr::PrimedIdent(name) = lhs.as_ref()
                     {
-                        if let Expr::PrimedIdent(name) = lhs.as_ref() {
-                            let lhs_ty = symbol_types
-                                .get(name)
-                                .copied()
-                                .ok_or_else(|| anyhow!("Unknown assignment target '{}'", name))?;
-                            let rhs_ty = infer_expr_type(rhs, &symbol_types)?;
-                            ensure_type_ok(
-                                lhs_ty == rhs_ty,
-                                format!(
-                                    "Assignment type mismatch for '{}': lhs {}, rhs {}",
-                                    name,
-                                    lhs_ty.as_str(),
-                                    rhs_ty.as_str()
-                                ),
-                            )?;
-                        }
+                        let lhs_ty = symbol_types
+                            .get(name)
+                            .copied()
+                            .ok_or_else(|| anyhow!("Unknown assignment target '{}'", name))?;
+                        let rhs_ty = infer_expr_type(rhs, &symbol_types)?;
+                        ensure_type_ok(
+                            lhs_ty == rhs_ty,
+                            format!(
+                                "Assignment type mismatch for '{}': lhs {}, rhs {}",
+                                name,
+                                lhs_ty.as_str(),
+                                rhs_ty.as_str()
+                            ),
+                        )?;
                     }
                 }
             }

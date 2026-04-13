@@ -156,9 +156,7 @@ impl SymbolicDTMC {
         ));
 
         let (curr_bits, next_bits) = self.state_variable_counts();
-        let stats = self
-            .mgr
-            .add_stats(self.transitions, (curr_bits + next_bits) as u32);
+        let stats = self.mgr.add_stats(self.transitions, curr_bits + next_bits);
         desc.push(format!(
             "Num Nodes ADD: {}, Num Terminals: {}, Transitions(minterms): {}\n",
             stats.node_count, stats.terminal_count, stats.minterms

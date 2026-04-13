@@ -20,10 +20,13 @@ pub fn parse_dtmc(input: &str) -> Result<ast::DTMCAst> {
         .map_err(|e| parse_error_to_anyhow(input, e))
 }
 
+/// Parsed DTMC property file payload: `(const_declarations, properties)`.
+pub type ParsedProps = (Vec<(String, ast::ConstDecl)>, Vec<ast::Property>);
+
 /// Parse a DTMC property file into property/query AST.
 pub fn parse_dtmc_props(
     input: &str,
-) -> Result<(Vec<(String, ast::ConstDecl)>, Vec<ast::Property>)> {
+) -> Result<ParsedProps> {
     let parser = parser::DTMCPropsParser::new();
     parser
         .parse(input)
