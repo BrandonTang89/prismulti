@@ -671,7 +671,7 @@ impl RefManager {
     ///
     /// _Refs_: result\
     /// _Derefs_: f
-    pub fn add_exist_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
+    pub fn add_sum_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
         let n = self.must_node(
             unsafe { Cudd_addExistAbstract(self.mgr, f.0.as_ptr(), cube.0.as_ptr()) },
             "Cudd_addExistAbstract",
@@ -687,7 +687,7 @@ impl RefManager {
     ///
     /// _Refs_: result\
     /// _Derefs_: f
-    pub fn add_max_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
+    pub fn add_or_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
         let n = self.must_node(
             unsafe { Cudd_addOrAbstract(self.mgr, f.0.as_ptr(), cube.0.as_ptr()) },
             "Cudd_addOrAbstract",
@@ -798,14 +798,6 @@ impl RefManager {
         let gt = self.add_greater_than(a, b);
         let lt = self.add_less_than(AddNode(a.0), AddNode(b.0));
         self.bdd_or(gt, lt)
-    }
-
-    /// Alias for ADD existential abstraction used as sum abstraction.
-    ///
-    /// _Refs_: result\
-    /// _Derefs_: f
-    pub fn add_sum_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
-        self.add_exist_abstract(f, cube)
     }
 
     /// Returns `true` iff `|a-b|_inf <= tolerance`.
