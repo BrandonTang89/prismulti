@@ -199,8 +199,6 @@ dependencies = [
 [[package]]
 name = "cudd-sys"
 version = "1.1.2-alpha.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c6d85ca7d94bdbb2d62ba26cada6adf44c37594f24da20d061a528090306845"
 dependencies = [
  "autotools",
  "libc",

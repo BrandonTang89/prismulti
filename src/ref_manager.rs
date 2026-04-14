@@ -29,8 +29,8 @@ use cudd_sys::{
         Cudd_ReadLogicZero, Cudd_ReadOne, Cudd_ReadSize, Cudd_RecursiveDeref, Cudd_Ref,
         Cudd_Regular, Cudd_T, Cudd_V, Cudd_addApply, Cudd_addBddPattern, Cudd_addBddThreshold,
         Cudd_addConst, Cudd_addDivide, Cudd_addExistAbstract, Cudd_addIte, Cudd_addIthVar,
-        Cudd_addMatrixMultiply, Cudd_addMinus, Cudd_addOrAbstract, Cudd_addPlus,
-        Cudd_addSwapVariables, Cudd_addTimes, Cudd_bddAnd, Cudd_bddAndAbstract,
+        Cudd_addMatrixMultiply, Cudd_addMaxAbstract, Cudd_addMinus, Cudd_addOrAbstract,
+        Cudd_addPlus, Cudd_addSwapVariables, Cudd_addTimes, Cudd_bddAnd, Cudd_bddAndAbstract,
         Cudd_bddExistAbstract, Cudd_bddIthVar, Cudd_bddNewVar, Cudd_bddOr, Cudd_bddSwapVariables,
         Cudd_bddXnor, Cudd_bddXor, DD_APPLY_OPERATOR,
     },
@@ -697,6 +697,20 @@ impl RefManager {
         AddNode(n)
     }
 
+    /// Max abstraction over ADD `f` with respect to `cube`.
+    ///
+    /// _Refs_: result\
+    /// _Derefs_: f
+    pub fn add_max_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
+        let n = self.must_node(
+            unsafe { Cudd_addMaxAbstract(self.mgr, f.0.as_ptr(), cube.0.as_ptr()) },
+            "Cudd_addMaxAbstract",
+        );
+        self.ref_node(n);
+        self.deref_node(f.0);
+        AddNode(n)
+    }
+
     /// Converts an ADD to a BDD using threshold `EPS`.
     ///
     /// _Refs_: result\
@@ -1097,6 +1111,31 @@ mod tests {
         assert_witness_satisfies(not_x0, &mut mgr, &witness);
 
         mgr.deref_node(not_x0.0);
+        assert_eq!(mgr.nonzero_ref_count(), 0);
+    }
+
+    #[test]
+    fn add_max_abstract_takes_max_over_abstracted_var() {
+        let mut mgr = RefManager::new();
+
+        let cond = mgr.bdd_var(0);
+        let then_branch = mgr.add_const(0.2);
+        let else_branch = mgr.add_const(0.7);
+        let f = mgr.add_ite(cond, then_branch, else_branch);
+
+        let cube = mgr.add_var(0);
+        let max_abs = mgr.add_max_abstract(f, cube);
+
+        let value = mgr
+            .add_value(max_abs.0)
+            .expect("max abstraction over x0 should yield a constant");
+        assert!(
+            (value - 0.7).abs() < 1e-12,
+            "expected max value 0.7, got {value}"
+        );
+
+        mgr.deref_node(max_abs.0);
+        mgr.deref_node(cube.0);
         assert_eq!(mgr.nonzero_ref_count(), 0);
     }
 }
