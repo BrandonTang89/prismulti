@@ -11,3 +11,6 @@ docs/davesthesis.pdf
 
 # vscode settings
 .vscode/
+
+# Nix output
+result
