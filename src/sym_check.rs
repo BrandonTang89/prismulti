@@ -118,6 +118,11 @@ fn solve_jacobi(dtmc: &mut SymbolicDTMC, a: AddNode, b: AddNode, init: AddNode) 
         .mgr
         .add_matrix_multiply(a_diag, ones, &dtmc.next_var_indices);
 
+    dtmc.mgr.ref_node(dtmc.next_var_cube.0);
+    let next_var_cube_add = dtmc.mgr.bdd_to_add(dtmc.next_var_cube);
+    let d = dtmc.mgr.add_max_abstract(d, next_var_cube_add);
+    dtmc.mgr.deref_node(next_var_cube_add.0);
+
     dtmc.mgr.ref_node(a.0);
     let neg_one = dtmc.mgr.add_const(-1.0);
     let a_neg = dtmc.mgr.add_times(a, neg_one);
