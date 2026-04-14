@@ -47,6 +47,7 @@
           };
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
         in
         f { inherit pkgs rustToolchain craneLib commonArgs cargoArtifacts src; }
       );

@@ -14,3 +14,6 @@ docs/davesthesis.pdf
 
 # Nix output
 result
+
+# Nix pre-commit hooks
+.pre-commit-config.yaml
