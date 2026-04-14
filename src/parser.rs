@@ -3,8 +3,8 @@ use lalrpop_util::lalrpop_mod;
 
 use crate::ast;
 lalrpop_mod!(
-    #[allow(clippy::all)] 
-    #[rustfmt::skip] 
+    #[allow(clippy::all)]
+    #[rustfmt::skip]
     parser,
     "/parser/parser.rs"
 );
@@ -24,9 +24,7 @@ pub fn parse_dtmc(input: &str) -> Result<ast::DTMCAst> {
 pub type ParsedProps = (Vec<(String, ast::ConstDecl)>, Vec<ast::Property>);
 
 /// Parse a DTMC property file into property/query AST.
-pub fn parse_dtmc_props(
-    input: &str,
-) -> Result<ParsedProps> {
+pub fn parse_dtmc_props(input: &str) -> Result<ParsedProps> {
     let parser = parser::DTMCPropsParser::new();
     parser
         .parse(input)

@@ -7,7 +7,7 @@
 //! This module computes an ADD that maps each current state to its probability,
 //! then evaluates that ADD in the (single) initial state.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use tracing::{debug, info, trace};
 
 use crate::ast::{Expr, PathFormula, Property};

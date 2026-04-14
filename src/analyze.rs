@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 
 /// Analysis summary consumed by symbolic construction.
 #[derive(Clone, Debug)]
@@ -208,11 +208,7 @@ fn infer_expr_type(expr: &Expr, symbol_types: &HashMap<String, TypeKind>) -> Res
 }
 
 fn ensure_type_ok(ok: bool, message: impl Into<String>) -> Result<()> {
-    if ok {
-        Ok(())
-    } else {
-        bail!(message.into())
-    }
+    if ok { Ok(()) } else { bail!(message.into()) }
 }
 
 fn expr_to_f64(expr: &Expr) -> f64 {
@@ -663,10 +659,14 @@ fn analyze_properties(
 /// Type-checks all state-formula expressions contained in a path formula.
 ///
 /// This pass focuses only on expression typing and returns context-rich error messages.
-fn type_check_path_formula(path: &PathFormula, symbol_types: &HashMap<String, TypeKind>) -> Result<()> {
+fn type_check_path_formula(
+    path: &PathFormula,
+    symbol_types: &HashMap<String, TypeKind>,
+) -> Result<()> {
     match path {
-        PathFormula::Next(phi) => type_check_expr(phi, symbol_types)
-            .map_err(|e| anyhow!("In X phi expression: {}", e)),
+        PathFormula::Next(phi) => {
+            type_check_expr(phi, symbol_types).map_err(|e| anyhow!("In X phi expression: {}", e))
+        }
         PathFormula::Until { lhs, rhs, bound } => {
             type_check_expr(lhs, symbol_types)
                 .map_err(|e| anyhow!("In until lhs expression: {}", e))?;

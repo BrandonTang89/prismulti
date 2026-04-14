@@ -122,14 +122,7 @@ fn dtmc_brp_constr() {
 fn dtmc_herman3_constr() {
     // regression + prism comparison test
     let const_overrides = HashMap::new();
-    test_construction(
-        "tests/dtmc/herman3.prism",
-        &const_overrides,
-        24,
-        3,
-        28,
-        8,
-    );
+    test_construction("tests/dtmc/herman3.prism", &const_overrides, 24, 3, 28, 8);
 }
 
 #[test]

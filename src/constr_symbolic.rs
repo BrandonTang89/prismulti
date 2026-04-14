@@ -78,13 +78,11 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
 
             trace!(
                 "Allocated var '{}' with curr BDD vars: {:?}",
-                var_name,
-                dtmc.var_curr_nodes[var_name]
+                var_name, dtmc.var_curr_nodes[var_name]
             );
             trace!(
                 "Allocated var '{}' with next BDD vars: {:?}",
-                var_name,
-                dtmc.var_next_nodes[var_name]
+                var_name, dtmc.var_next_nodes[var_name]
             );
         }
     }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use clap::{Parser, ValueEnum};
 use prism_rs::ast::Expr;
 use prism_rs::parser::{parse_dtmc, parse_dtmc_props};
-use prism_rs::sym_check::{evaluate_property_at_initial_state, PropertyEvaluation};
+use prism_rs::sym_check::{PropertyEvaluation, evaluate_property_at_initial_state};
 use tracing::Level;
 use tracing::{debug, info};
 use tracing_subscriber::FmtSubscriber;
