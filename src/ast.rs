@@ -6,9 +6,17 @@ pub struct DTMCAst {
     pub modules: Vec<Module>,
     pub constants: Vec<(String, ConstDecl)>,
     pub renamed_modules: Vec<RenamedModule>,
+    pub labels: Vec<LabelDecl>,
     pub properties: Vec<Property>,
     // global vars
     // functions, etc.
+}
+
+/// Label declaration.
+#[derive(Clone, Debug)]
+pub struct LabelDecl {
+    pub name: String,
+    pub expr: Box<Expr>,
 }
 
 /// Global constant declaration.
@@ -75,6 +83,7 @@ pub enum Expr {
     // References
     Ident(String),
     PrimedIdent(String),
+    LabelRef(String),
 
     // Operators
     UnaryOp {
@@ -180,6 +189,7 @@ impl std::fmt::Display for Expr {
             Expr::FloatLit(v) => write!(f, "{v}"),
             Expr::Ident(name) => write!(f, "{name}"),
             Expr::PrimedIdent(name) => write!(f, "{name}'"),
+            Expr::LabelRef(name) => write!(f, "\"{name}\""),
             Expr::UnaryOp { op, operand } => write!(f, "{}({})", op, operand),
             Expr::BinOp { lhs, op, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
             Expr::Ternary {
@@ -198,6 +208,8 @@ impl std::fmt::Display for PathFormula {
             PathFormula::Until { lhs, rhs, bound } => {
                 if matches!(lhs.as_ref(), Expr::BoolLit(true)) && bound.is_none() {
                     write!(f, "F {}", rhs)
+                } else if matches!(lhs.as_ref(), Expr::BoolLit(true)) {
+                    write!(f, "F<={} {}", bound.as_ref().expect("bounded case"), rhs)
                 } else if let Some(k) = bound {
                     write!(f, "{} U<={} {}", lhs, k, rhs)
                 } else {

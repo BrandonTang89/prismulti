@@ -87,6 +87,7 @@ fn infer_expr_type(expr: &Expr, symbol_types: &HashMap<String, TypeKind>) -> Res
         Expr::BoolLit(_) => Ok(TypeKind::Bool),
         Expr::IntLit(_) => Ok(TypeKind::Int),
         Expr::FloatLit(_) => Ok(TypeKind::Float),
+        Expr::LabelRef(name) => Err(err(format!("Unresolved label reference '\"{}\"'.", name))),
         Expr::Ident(name) | Expr::PrimedIdent(name) => symbol_types
             .get(name)
             .copied()
@@ -231,6 +232,7 @@ fn fold_expr(expr: &Expr, constant_values: &HashMap<String, Expr>) -> Expr {
         Expr::BoolLit(v) => Expr::BoolLit(*v),
         Expr::IntLit(v) => Expr::IntLit(*v),
         Expr::FloatLit(v) => Expr::FloatLit(*v),
+        Expr::LabelRef(name) => Expr::LabelRef(name.clone()),
         Expr::Ident(name) => constant_values
             .get(name)
             .cloned()
@@ -332,6 +334,78 @@ fn fold_path_formula(path: &mut PathFormula, constant_values: &HashMap<String, E
     }
 }
 
+fn expand_label_refs_in_expr(
+    expr: &mut Expr,
+    labels_by_name: &HashMap<String, Box<Expr>>,
+    resolving: &mut Vec<String>,
+) -> Result<()> {
+    match expr {
+        Expr::LabelRef(name) => {
+            if resolving.iter().any(|n| n == name) {
+                let mut cycle = resolving.clone();
+                cycle.push(name.clone());
+                bail!("Cyclic label definition detected: {}", cycle.join(" -> "));
+            }
+
+            let label_expr = labels_by_name
+                .get(name)
+                .cloned()
+                .ok_or_else(|| anyhow!("Unknown label reference '\"{}\"'.", name))?;
+            resolving.push(name.clone());
+            let mut expanded = *label_expr;
+            expand_label_refs_in_expr(&mut expanded, labels_by_name, resolving)?;
+            resolving.pop();
+            *expr = expanded;
+            Ok(())
+        }
+        Expr::UnaryOp { operand, .. } => {
+            expand_label_refs_in_expr(operand.as_mut(), labels_by_name, resolving)
+        }
+        Expr::BinOp { lhs, rhs, .. } => {
+            expand_label_refs_in_expr(lhs.as_mut(), labels_by_name, resolving)?;
+            expand_label_refs_in_expr(rhs.as_mut(), labels_by_name, resolving)
+        }
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            expand_label_refs_in_expr(cond.as_mut(), labels_by_name, resolving)?;
+            expand_label_refs_in_expr(then_branch.as_mut(), labels_by_name, resolving)?;
+            expand_label_refs_in_expr(else_branch.as_mut(), labels_by_name, resolving)
+        }
+        Expr::BoolLit(_)
+        | Expr::IntLit(_)
+        | Expr::FloatLit(_)
+        | Expr::Ident(_)
+        | Expr::PrimedIdent(_) => Ok(()),
+    }
+}
+
+fn expand_label_refs_in_box_expr(
+    expr: &mut Box<Expr>,
+    labels_by_name: &HashMap<String, Box<Expr>>,
+) -> Result<()> {
+    expand_label_refs_in_expr(expr.as_mut(), labels_by_name, &mut Vec::new())
+}
+
+fn expand_label_refs_in_path_formula(
+    path: &mut PathFormula,
+    labels_by_name: &HashMap<String, Box<Expr>>,
+) -> Result<()> {
+    match path {
+        PathFormula::Next(phi) => expand_label_refs_in_box_expr(phi, labels_by_name),
+        PathFormula::Until { lhs, rhs, bound } => {
+            expand_label_refs_in_box_expr(lhs, labels_by_name)?;
+            expand_label_refs_in_box_expr(rhs, labels_by_name)?;
+            if let Some(k) = bound {
+                expand_label_refs_in_box_expr(k, labels_by_name)?;
+            }
+            Ok(())
+        }
+    }
+}
+
 fn ensure_no_primed_idents(expr: &Expr, where_msg: &str) -> Result<()> {
     match expr {
         Expr::PrimedIdent(name) => bail!(
@@ -353,7 +427,11 @@ fn ensure_no_primed_idents(expr: &Expr, where_msg: &str) -> Result<()> {
             ensure_no_primed_idents(then_branch, where_msg)?;
             ensure_no_primed_idents(else_branch, where_msg)
         }
-        Expr::BoolLit(_) | Expr::IntLit(_) | Expr::FloatLit(_) | Expr::Ident(_) => Ok(()),
+        Expr::BoolLit(_)
+        | Expr::IntLit(_)
+        | Expr::FloatLit(_)
+        | Expr::Ident(_)
+        | Expr::LabelRef(_) => Ok(()),
     }
 }
 
@@ -477,6 +555,7 @@ fn apply_and_resolve_constants_for_decls(
 fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>) {
     match expr {
         Expr::BoolLit(_) | Expr::IntLit(_) | Expr::FloatLit(_) => {}
+        Expr::LabelRef(_) => {}
         Expr::Ident(name) | Expr::PrimedIdent(name) => {
             if let Some(new_name) = renames.get(name) {
                 *name = new_name.clone();
@@ -609,12 +688,14 @@ fn analyze_properties(
     properties: &mut [Property],
     symbol_types: &HashMap<String, TypeKind>,
     constant_values: &HashMap<String, Expr>,
+    labels_by_name: &HashMap<String, Box<Expr>>,
 ) -> Result<()> {
     for property in properties {
         let path = match property {
             Property::ProbQuery(path) | Property::RewardQuery(path) => path,
         };
 
+        expand_label_refs_in_path_formula(path, labels_by_name)?;
         fold_path_formula(path, constant_values);
         type_check_path_formula(path, symbol_types)?;
 
@@ -656,6 +737,43 @@ fn analyze_properties(
     Ok(())
 }
 
+fn analyze_labels(
+    labels: &mut [LabelDecl],
+    symbol_types: &HashMap<String, TypeKind>,
+    constant_values: &HashMap<String, Expr>,
+) -> Result<HashMap<String, Box<Expr>>> {
+    let mut labels_by_name = HashMap::new();
+    for label in labels.iter() {
+        if labels_by_name
+            .insert(label.name.clone(), label.expr.clone())
+            .is_some()
+        {
+            bail!("Duplicate label declaration '\"{}\"'.", label.name);
+        }
+    }
+
+    for label in labels.iter_mut() {
+        fold_box_expr(&mut label.expr, constant_values);
+    }
+
+    for label in labels.iter_mut() {
+        expand_label_refs_in_box_expr(&mut label.expr, &labels_by_name)
+            .map_err(|e| anyhow!("In label '\"{}\"': {}", label.name, e))?;
+        type_check_expr(&label.expr, symbol_types)
+            .map_err(|e| anyhow!("In label '\"{}\"': {}", label.name, e))?;
+        ensure_no_primed_idents(&label.expr, &format!("In label '\"{}\"'", label.name))?;
+        ensure_type_ok(
+            infer_expr_type(&label.expr, symbol_types)? == TypeKind::Bool,
+            format!("Label '\"{}\"' must have bool type", label.name),
+        )?;
+    }
+
+    Ok(labels
+        .iter()
+        .map(|label| (label.name.clone(), label.expr.clone()))
+        .collect())
+}
+
 /// Type-checks all state-formula expressions contained in a path formula.
 ///
 /// This pass focuses only on expression typing and returns context-rich error messages.
@@ -694,9 +812,10 @@ fn type_check_expr(expr: &Expr, symbol_types: &HashMap<String, TypeKind>) -> Res
 /// 3. applies/validates/folds constant declarations,
 /// 4. folds constants through variable declarations and checks bounds/init expressions,
 /// 5. folds constants through commands and validates guards/probabilities/assignments,
-/// 6. folds constants through properties and validates path formulas,
-/// 7. inserts default labels for unlabeled commands and validates label usage,
-/// 8. collects module/action/variable metadata for symbolic construction.
+/// 6. Expand labels, resolving nested labels
+/// 7. folds constants and labels through properties and validates path formulas,
+/// 8. inserts default actions for unlabeled commands and validates label usage,
+/// 9. collects module/action/variable metadata for symbolic construction.
 pub fn analyze_dtmc(
     model: &mut DTMCAst,
     const_overrides: &HashMap<String, String>,
@@ -850,9 +969,16 @@ pub fn analyze_dtmc(
         }
     }
 
-    analyze_properties(&mut model.properties, &symbol_types, &constant_values)?;
+    let labels_by_name = analyze_labels(&mut model.labels, &symbol_types, &constant_values)?;
 
-    let mut synchronisation_labels: HashMap<String, Vec<String>> = HashMap::new();
+    analyze_properties(
+        &mut model.properties,
+        &symbol_types,
+        &constant_values,
+        &labels_by_name,
+    )?;
+
+    let mut synchronisation_actions: HashMap<String, Vec<String>> = HashMap::new();
     let mut local_variables: HashMap<String, String> = HashMap::new();
     let mut var_bounds: HashMap<String, (i32, i32)> = HashMap::new();
 
@@ -877,12 +1003,12 @@ pub fn analyze_dtmc(
             }
 
             let action = &command.labels[0];
-            if let Some(modules) = synchronisation_labels.get_mut(action) {
+            if let Some(modules) = synchronisation_actions.get_mut(action) {
                 if modules.last() != Some(&module.name) {
                     modules.push(module.name.clone());
                 }
             } else {
-                synchronisation_labels.insert(action.clone(), vec![module.name.clone()]);
+                synchronisation_actions.insert(action.clone(), vec![module.name.clone()]);
             }
         }
 
@@ -918,7 +1044,7 @@ pub fn analyze_dtmc(
 
     Ok(DTMCModelInfo {
         module_names: model.modules.iter().map(|m| m.name.clone()).collect(),
-        modules_of_act: synchronisation_labels,
+        modules_of_act: synchronisation_actions,
         module_of_var: local_variables,
         var_bounds,
     })

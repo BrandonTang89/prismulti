@@ -131,3 +131,40 @@ fn parses_knuth_die_prop_file() {
         other => panic!("unexpected third property: {other:?}"),
     }
 }
+
+#[test]
+fn parses_leader_prop_file_with_label_and_bounded_finally() {
+    let props = std::fs::read_to_string("tests/dtmc/leader.prop").expect("read failed");
+    let (constants, properties) = parse_dtmc_props(&props).expect("parse failed");
+
+    assert_eq!(constants.len(), 1);
+    assert_eq!(constants[0].0, "L");
+    assert_eq!(properties.len(), 3);
+
+    match &properties[0] {
+        Property::ProbQuery(PathFormula::Until { lhs, rhs, bound }) => {
+            assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
+            assert!(matches!(rhs.as_ref(), Expr::LabelRef(name) if name == "elected"));
+            assert!(bound.is_none());
+        }
+        other => panic!("unexpected first property: {other:?}"),
+    }
+
+    match &properties[1] {
+        Property::ProbQuery(PathFormula::Until { lhs, rhs, bound }) => {
+            assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
+            assert!(matches!(rhs.as_ref(), Expr::LabelRef(name) if name == "elected"));
+            assert!(bound.is_some());
+        }
+        other => panic!("unexpected second property: {other:?}"),
+    }
+
+    match &properties[2] {
+        Property::RewardQuery(PathFormula::Until { lhs, rhs, bound }) => {
+            assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
+            assert!(matches!(rhs.as_ref(), Expr::LabelRef(name) if name == "elected"));
+            assert!(bound.is_none());
+        }
+        other => panic!("unexpected third property: {other:?}"),
+    }
+}

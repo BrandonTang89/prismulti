@@ -1,7 +1,7 @@
 use anyhow::Result;
 use prism_rs::analyze::analyze_dtmc;
 use prism_rs::parser::{parse_dtmc, parse_dtmc_props};
-use prism_rs::sym_check::{evaluate_property_at_initial_state, PropertyEvaluation};
+use prism_rs::sym_check::{PropertyEvaluation, evaluate_property_at_initial_state};
 use prism_rs::symbolic_dtmc::{RefLeakReport, SymbolicDTMC};
 use std::collections::HashMap;
 
@@ -198,6 +198,49 @@ fn dtmc_brp_property_probabilities_with_constants() {
             PropertyEvaluation::Unsupported(reason) => {
                 panic!("Expected probability, got {reason}")
             }
+        }
+    }
+
+    assert_zero_refs(dtmc.release_report());
+}
+
+#[test]
+fn dtmc_leader3_2_properties_with_constants() {
+    let mut const_overrides = HashMap::new();
+    const_overrides.insert("L".to_string(), "3".to_string());
+
+    let mut dtmc = construct_symbolic_dtmc_with_props(
+        "tests/dtmc/leader3_2.prism",
+        "tests/dtmc/leader.prop",
+        &const_overrides,
+    )
+    .expect("Failed to construct symbolic DTMC with properties");
+
+    let properties = dtmc.ast.properties.clone();
+    assert_eq!(properties.len(), 3);
+
+    match evaluate_property_at_initial_state(&mut dtmc, &properties[0])
+        .expect("Property checking failed")
+    {
+        PropertyEvaluation::Probability(value) => assert_close(value, 1.0, 1e-10),
+        PropertyEvaluation::Unsupported(reason) => panic!("Expected probability, got {reason}"),
+    }
+
+    match evaluate_property_at_initial_state(&mut dtmc, &properties[1])
+        .expect("Property checking failed")
+    {
+        PropertyEvaluation::Probability(value) => assert_close(value, 0.984375, 1e-10),
+        PropertyEvaluation::Unsupported(reason) => panic!("Expected probability, got {reason}"),
+    }
+
+    match evaluate_property_at_initial_state(&mut dtmc, &properties[2])
+        .expect("Property checking failed")
+    {
+        PropertyEvaluation::Unsupported(reason) => {
+            assert_eq!(reason, "Reward properties are not supported yet")
+        }
+        PropertyEvaluation::Probability(value) => {
+            panic!("Expected unsupported reward property, got probability {value}")
         }
     }
 

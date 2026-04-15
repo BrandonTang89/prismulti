@@ -25,14 +25,16 @@ pub DTMC: DTMCAst = {
         let mut modules = Vec::new();
         let mut constants = Vec::new();
         let mut renamed_modules = Vec::new();
+        let mut labels = Vec::new();
 
-        for (mut item_modules, mut item_constants, mut item_renamed_modules) in items {
+        for (mut item_modules, mut item_constants, mut item_renamed_modules, mut item_labels) in items {
             modules.append(&mut item_modules);
             constants.append(&mut item_constants);
             renamed_modules.append(&mut item_renamed_modules);
+            labels.append(&mut item_labels);
         }
 
-        DTMCAst { modules, constants, renamed_modules, properties: Vec::new() }
+        DTMCAst { modules, constants, renamed_modules, labels, properties: Vec::new() }
     }
 };
 
@@ -55,13 +57,13 @@ PropTopLevelItem: (Vec<(String, ConstDecl)>, Vec<Property>) = {
     <property:PropertyStmt> => (vec![], vec![property]),
 };
 
-TopLevelItem: (Vec<Module>, Vec<(String, ConstDecl)>, Vec<RenamedModule>) = {
-    <module:Module> => (vec![module], vec![], vec![]),
-    <renamed_module:RenamedModuleDecl> => (vec![], vec![], vec![renamed_module]),
-    <constant:ConstDeclStmt> => (vec![], vec![constant], vec![]),
-    <IgnoredRewardsBlock> => (vec![], vec![], vec![]),
-    <IgnoredLabelDecl> => (vec![], vec![], vec![]),
-    <IgnoredFormulaDecl> => (vec![], vec![], vec![]),
+TopLevelItem: (Vec<Module>, Vec<(String, ConstDecl)>, Vec<RenamedModule>, Vec<LabelDecl>) = {
+    <module:Module> => (vec![module], vec![], vec![], vec![]),
+    <renamed_module:RenamedModuleDecl> => (vec![], vec![], vec![renamed_module], vec![]),
+    <constant:ConstDeclStmt> => (vec![], vec![constant], vec![], vec![]),
+    <label:LabelDeclStmt> => (vec![], vec![], vec![], vec![label]),
+    <IgnoredRewardsBlock> => (vec![], vec![], vec![], vec![]),
+    <IgnoredFormulaDecl> => (vec![], vec![], vec![], vec![]),
 };
 
 StringLit: String = {
@@ -75,8 +77,8 @@ IgnoredFormulaDecl: () = {
     "formula" <Ident> "=" <Expr> ";" => ()
 };
 
-IgnoredLabelDecl: () = {
-    "label" <StringLit> "=" <Expr> ";" => ()
+LabelDeclStmt: LabelDecl = {
+    "label" <name:StringLit> "=" <expr:Expr> ";" => LabelDecl { name, expr }
 };
 
 RewardItem: () = {
@@ -105,33 +107,45 @@ ConstDeclStmt: (String, ConstDecl) = {
 PropertyStmt: Property = {
     "P" "=" "?" "[" <psi:PathFormulaExpr> "]"
         => Property::ProbQuery(psi),
+    "R" "{" <_reward_name:StringLit> "}" "=" "?" "[" <psi:PathFormulaExpr> "]"
+        => Property::RewardQuery(psi),
     "R" "=" "?" "[" <psi:PathFormulaExpr> "]"
         => Property::RewardQuery(psi),
 };
 
 PathFormulaExpr: PathFormula = {
-    "X" <phi:Expr> => PathFormula::Next(phi),
-    "F" <phi:Expr> => PathFormula::Until {
+    "X" <phi:PathStateExpr> => PathFormula::Next(phi),
+    "F" <phi:PathStateExpr> => PathFormula::Until {
         lhs: Box::new(Expr::BoolLit(true)),
         rhs: phi,
         bound: None,
     },
-    <lhs:Expr> "U" "<=" <k:BoundExpr> <rhs:Expr> => PathFormula::Until {
+    "F" "<=" <k:BoundExpr> <phi:PathStateExpr> => PathFormula::Until {
+        lhs: Box::new(Expr::BoolLit(true)),
+        rhs: phi,
+        bound: Some(k),
+    },
+    <lhs:PathStateExpr> "U" "<=" <k:BoundExpr> <rhs:PathStateExpr> => PathFormula::Until {
         lhs,
         rhs,
         bound: Some(k),
     },
-    <lhs:Expr> "U" <rhs:Expr> => PathFormula::Until {
+    <lhs:PathStateExpr> "U" <rhs:PathStateExpr> => PathFormula::Until {
         lhs,
         rhs,
         bound: None,
     },
 };
 
+PathStateExpr: Box<Expr> = {
+    <label:StringLit> => Box::new(Expr::LabelRef(label)),
+    <Expr>,
+};
+
 BoundExpr: Box<Expr> = {
     r"[0-9]+" => Box::new(Expr::IntLit(i32::from_str(<>).unwrap())),
     <var:Ident> => Box::new(Expr::Ident(var)),
-    "(" <BoundExpr> ")",
+    "(" <e:Expr> ")" => e,
 };
 
 Module: Module = {

@@ -135,6 +135,12 @@ pub fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
         Expr::BoolLit(b) => dtmc.mgr.add_const(if *b { 1.0 } else { 0.0 }),
         Expr::Ident(name) => get_variable_encoding(dtmc, name, false),
         Expr::PrimedIdent(name) => get_variable_encoding(dtmc, name, true),
+        Expr::LabelRef(name) => {
+            panic!(
+                "Unresolved label reference should not reach symbolic translation: \"{}\"",
+                name
+            )
+        }
         Expr::UnaryOp { op, operand } => {
             let value = translate_expr(operand, dtmc);
             match op {
