@@ -1,7 +1,7 @@
 use anyhow::Result;
 use prism_rs::analyze::analyze_dtmc;
 use prism_rs::parser::{parse_dtmc, parse_dtmc_props};
-use prism_rs::sym_check::{PropertyEvaluation, evaluate_property_at_initial_state};
+use prism_rs::sym_check::{evaluate_property_at_initial_state, PropertyEvaluation};
 use prism_rs::symbolic_dtmc::{RefLeakReport, SymbolicDTMC};
 use std::collections::HashMap;
 
@@ -122,4 +122,41 @@ fn dtmc_knuth_die_bounded_until_property_probability() {
     }
 
     assert_zero_refs(dtmc.release_report());
+}
+
+#[test]
+fn dtmc_knuth_two_dice_reachability_probability() {
+    let cases = [
+        (4, 0.0833333320915699_f64),
+        (3, 0.0555555522441864_f64),
+        (2, 0.0277777761220932_f64),
+        (1, 0.0_f64),
+    ];
+
+    for (x, expected) in cases {
+        let mut const_overrides = HashMap::new();
+        const_overrides.insert("x".to_string(), x.to_string());
+        let mut dtmc = construct_symbolic_dtmc_with_props(
+            "tests/dtmc/knuth_two_dice.prism",
+            "tests/dtmc/knuth_two_dice.prop",
+            &const_overrides,
+        )
+        .expect("Failed to construct symbolic DTMC with properties");
+
+        let property = {
+            let properties = dtmc.ast.properties.clone();
+            properties[0].clone()
+        };
+
+        match evaluate_property_at_initial_state(&mut dtmc, &property)
+            .expect("Property checking failed")
+        {
+            PropertyEvaluation::Probability(value) => assert_close(value, expected, 5e-9),
+            PropertyEvaluation::Unsupported(reason) => {
+                panic!("Expected probability, got {reason}")
+            }
+        }
+
+        assert_zero_refs(dtmc.release_report());
+    }
 }

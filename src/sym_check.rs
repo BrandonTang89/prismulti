@@ -8,7 +8,7 @@
 //! This module computes an ADD that maps each current state to its probability,
 //! then evaluates that ADD in the (single) initial state.
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use tracing::{debug, info, trace};
 
 use crate::ast::{Expr, PathFormula, Property};
@@ -174,6 +174,87 @@ fn solve_jacobi(dtmc: &mut SymbolicDTMC, a: AddNode, b: AddNode, init: AddNode) 
     }
 }
 
+fn prob0(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode) -> BddNode {
+    let mut sol = phi2;
+    let mut iterations = 0usize;
+
+    loop {
+        iterations += 1;
+
+        dtmc.mgr.ref_node(sol.0);
+        let sol_next =
+            dtmc.mgr
+                .bdd_swap_variables(sol, &dtmc.curr_var_indices, &dtmc.next_var_indices);
+
+        let t_01 = dtmc.get_transitions_01();
+        let post = dtmc
+            .mgr
+            .bdd_and_abstract(t_01, sol_next, dtmc.next_var_cube);
+
+        dtmc.mgr.ref_node(phi1.0);
+        let step = dtmc.mgr.bdd_and(BddNode(phi1.0), post);
+
+        dtmc.mgr.ref_node(sol.0);
+        let sol_prime = dtmc.mgr.bdd_or(BddNode(sol.0), step);
+
+        dtmc.mgr.deref_node(sol.0);
+        if sol_prime == sol {
+            sol = sol_prime;
+            break;
+        }
+        sol = sol_prime;
+    }
+
+    trace!("prob0 converged in {} iterations", iterations);
+    dtmc.mgr.deref_node(phi1.0);
+
+    let reachable = dtmc.get_reachable_bdd();
+    let not_sol = dtmc.mgr.bdd_not(sol);
+    dtmc.mgr.bdd_and(reachable, not_sol)
+}
+
+fn prob1(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode, s_no: BddNode) -> BddNode {
+    let not_phi2 = dtmc.mgr.bdd_not(phi2);
+    let phi1_and_not_phi2 = dtmc.mgr.bdd_and(phi1, not_phi2);
+
+    let mut sol = s_no;
+    let mut iterations = 0usize;
+
+    loop {
+        iterations += 1;
+
+        dtmc.mgr.ref_node(sol.0);
+        let sol_next =
+            dtmc.mgr
+                .bdd_swap_variables(sol, &dtmc.curr_var_indices, &dtmc.next_var_indices);
+
+        let t_01 = dtmc.get_transitions_01();
+        let post = dtmc
+            .mgr
+            .bdd_and_abstract(t_01, sol_next, dtmc.next_var_cube);
+
+        dtmc.mgr.ref_node(phi1_and_not_phi2.0);
+        let step = dtmc.mgr.bdd_and(BddNode(phi1_and_not_phi2.0), post);
+
+        dtmc.mgr.ref_node(sol.0);
+        let sol_prime = dtmc.mgr.bdd_or(BddNode(sol.0), step);
+
+        dtmc.mgr.deref_node(sol.0);
+        if sol_prime == sol {
+            sol = sol_prime;
+            break;
+        }
+        sol = sol_prime;
+    }
+
+    trace!("prob1 converged in {} iterations", iterations);
+    dtmc.mgr.deref_node(phi1_and_not_phi2.0);
+
+    let reachable = dtmc.get_reachable_bdd();
+    let not_sol = dtmc.mgr.bdd_not(sol);
+    dtmc.mgr.bdd_and(reachable, not_sol)
+}
+
 fn check_unbounded_until_probability_add(
     dtmc: &mut SymbolicDTMC,
     phi1: &Expr,
@@ -184,12 +265,11 @@ fn check_unbounded_until_probability_add(
     let phi1_bdd = state_formula_to_bdd(dtmc, phi1);
     let phi2_bdd = state_formula_to_bdd(dtmc, phi2);
 
-    let not_phi1 = dtmc.mgr.bdd_not(phi1_bdd);
+    dtmc.mgr.ref_node(phi1_bdd.0);
     dtmc.mgr.ref_node(phi2_bdd.0);
-    let not_phi2 = dtmc.mgr.bdd_not(phi2_bdd);
-    let s_no = dtmc.mgr.bdd_and(not_phi1, not_phi2);
-
-    let s_yes = phi2_bdd;
+    let s_no = prob0(dtmc, BddNode(phi1_bdd.0), BddNode(phi2_bdd.0));
+    dtmc.mgr.ref_node(s_no.0);
+    let s_yes = prob1(dtmc, phi1_bdd, phi2_bdd, s_no);
 
     dtmc.mgr.ref_node(s_yes.0);
     let no_or_yes = dtmc.mgr.bdd_or(s_no, s_yes);
