@@ -255,7 +255,7 @@ pub unsafe fn Cudd_ForeachCube<F: FnMut(*mut c_int, CUDD_VALUE_TYPE)>(
 /// the function is completely specified, the two bounds coincide.
 /// Cudd_ForeachPrime allocates and frees the generator.  Therefore the
 /// application should not try to do that.  Also, the cube is freed at the
-/// end of Cudd_ForeachPrime and hence is not available outside of the loop.<p>
+/// end of Cudd_ForeachPrime and hence is not available outside of the loop.
 /// CAUTION: It is a mistake to change a diagram on which generation is ongoing.
 #[inline]
 pub unsafe fn Cudd_ForeachPrime<F: FnMut(*mut c_int)>(

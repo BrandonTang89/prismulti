@@ -10,9 +10,9 @@ Working today:
 - symbolic probabilistic checking for:
   - `P=? [X phi]`
   - `P=? [phi1 U<=k phi2]`
+  - `P=? [phi1 U phi2]`
 
 Not implemented yet:
-- unbounded until model checking (`P=? [phi1 U phi2]`)
 - reward model checking (`R=? [...]`)
 - broader PRISM language coverage (MDPs, TSGs, CSGs, etc)
 
@@ -72,3 +72,6 @@ cargo run -- --model-type dtmc --model tests/dtmc/knuth_die.prism --prop-file te
 
 This parses the model and properties, constructs the symbolic DTMC, and checks
 properties 2 and 3 from the property file.
+
+For deeper DTMC semantics and symbolic checking notes, see
+`docs/dtmc_details.md`.

@@ -25,6 +25,11 @@
 ## CUDD Type Discipline (critical)
 - `BddNode` wraps nodes used with `Cudd_bdd*` operations.
 - `AddNode` wraps nodes used with `Cudd_add*` operations.
+- Any function that takes or returns `BddNode`/`AddNode` must include an explicit
+  doc comment contract in this style:
+  - `__Refs__: ...`
+  - `__Derefs__: ...`
+  This is mandatory so ownership and ref-count behavior stays auditable.
 - Convert explicitly when crossing APIs:
   - ADD -> BDD: `add_to_bdd` / `add_to_bdd_pattern`
   - BDD -> ADD: `bdd_to_add`

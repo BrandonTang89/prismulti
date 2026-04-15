@@ -1,7 +1,7 @@
 use anyhow::Result;
 use prism_rs::analyze::analyze_dtmc;
 use prism_rs::parser::{parse_dtmc, parse_dtmc_props};
-use prism_rs::sym_check::{evaluate_property_at_initial_state, PropertyEvaluation};
+use prism_rs::sym_check::{PropertyEvaluation, evaluate_property_at_initial_state};
 use prism_rs::symbolic_dtmc::{RefLeakReport, SymbolicDTMC};
 use std::collections::HashMap;
 

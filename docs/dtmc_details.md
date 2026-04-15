@@ -100,3 +100,52 @@ for i in 1..=k:
 
 return evaluate_in_initial_state(res)
 ```
+
+#### Unbounded Until
+For `P=? [phi1 U phi2]`, we follow the standard decomposition into certainty
+regions and an unknown region:
+
+- `S_no`: probability 0 of satisfying `phi1 U phi2`
+- `S_yes`: probability 1 of satisfying `phi1 U phi2`
+- `S_question = reachable \ (S_no \cup S_yes)`
+
+`S_no` and `S_yes` are computed with fixpoints over the filtered 0-1 transition
+relation `T_01` (see `SymbolicDTMC::get_transitions_01`).
+
+`prob0(phi1, phi2)`:
+
+```text
+sol := phi2
+loop:
+  sol' := sol OR (phi1 AND Exists_{next}(T_01 AND swap_curr_to_next(sol)))
+  if sol' == sol: break
+  sol := sol'
+
+S_no := reachable AND (NOT sol)
+```
+
+`prob1(phi1, phi2, S_no)`:
+
+```text
+sol := S_no
+loop:
+  sol' := sol OR ((phi1 AND NOT phi2)
+                  AND Exists_{next}(T_01 AND swap_curr_to_next(sol)))
+  if sol' == sol: break
+  sol := sol'
+
+S_yes := reachable AND (NOT sol)
+```
+
+After obtaining `S_yes` and `S_question`, we solve only on `S_question`:
+
+```text
+A := I - P_question
+b := I_{S_yes}
+
+solve A x = b using Jacobi until sup-norm <= EPS
+```
+
+Where `P_question` is the transition ADD masked by `S_question` over current
+state variables. This avoids spending iterations on regions already known to be
+exactly 0 or 1.

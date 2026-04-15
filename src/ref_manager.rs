@@ -561,7 +561,7 @@ impl RefManager {
     /// remaining vars. The result abstracts over `z`.
     ///
     /// Equivalent to sum_abstract((a * b), z) but more efficient.
-    /// 
+    ///
     /// _Refs_: result\
     /// _Derefs_: a, b
     pub fn add_matrix_multiply(&mut self, a: AddNode, b: AddNode, z: &[u16]) -> AddNode {
