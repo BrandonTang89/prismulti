@@ -19,7 +19,7 @@ pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
         dtmc.mgr.ref_node(trans_rel.0);
         let image_next = dtmc
             .mgr
-            .bdd_and_abstract(old, trans_rel, dtmc.curr_var_cube);
+            .bdd_and_then_existsabs(old, trans_rel, dtmc.curr_var_cube);
         let image_curr =
             dtmc.mgr
                 .bdd_swap_variables(image_next, &dtmc.next_var_indices, &dtmc.curr_var_indices);

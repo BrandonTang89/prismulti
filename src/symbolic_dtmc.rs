@@ -301,7 +301,9 @@ impl SymbolicDTMC {
 
         // Add self-loops to dead-end states
         self.mgr.ref_node(filtered_01.0);
-        let out_curr = self.mgr.bdd_or_abstract(filtered_01, self.next_var_cube);
+        let out_curr = self
+            .mgr
+            .bdd_exists_abstract(filtered_01, self.next_var_cube);
 
         let not_out_curr = self.mgr.bdd_not(out_curr);
 

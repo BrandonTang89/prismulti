@@ -270,7 +270,9 @@ impl RefManager {
     /// Evaluates ADD `f` at a concrete valuation and returns the terminal value.
     ///
     /// `inputs` is indexed by DD variable index and must contain at least
-    /// `self.var_count()` entries with values `0` or `1`.
+    /// `self.var_count()` entries with values `0` or `1`.\
+    /// __Refs__: none\
+    /// __Derefs__: none
     pub fn add_eval_value(&self, f: AddNode, inputs: &[i32]) -> f64 {
         let required = self.var_count();
         assert!(
@@ -442,7 +444,7 @@ impl RefManager {
     ///
     /// _Refs_: result\
     /// _Derefs_: a
-    pub fn bdd_or_abstract(&mut self, a: BddNode, cube: BddNode) -> BddNode {
+    pub fn bdd_exists_abstract(&mut self, a: BddNode, cube: BddNode) -> BddNode {
         let n = self.must_node(
             unsafe { Cudd_bddExistAbstract(self.mgr, a.0.as_ptr(), cube.0.as_ptr()) },
             "Cudd_bddExistAbstract",
@@ -452,11 +454,11 @@ impl RefManager {
         BddNode(n)
     }
 
-    /// Computes `(f AND g)` then existentially abstracts variables in `cube`.
-    ///
+    /// Computes `(f AND g)` then existentially abstracts variables in `cube`.\
+    /// This is essentially matrix multiplication for BDDs\
     /// _Refs_: result\
     /// _Derefs_: f, g
-    pub fn bdd_and_abstract(&mut self, f: BddNode, g: BddNode, cube: BddNode) -> BddNode {
+    pub fn bdd_and_then_existsabs(&mut self, f: BddNode, g: BddNode, cube: BddNode) -> BddNode {
         let n = self.must_node(
             unsafe { Cudd_bddAndAbstract(self.mgr, f.0.as_ptr(), g.0.as_ptr(), cube.0.as_ptr()) },
             "Cudd_bddAndAbstract",
@@ -558,6 +560,8 @@ impl RefManager {
     /// `a` is assumed to depend on row vars and `z`; `b` depends on `z` and optional
     /// remaining vars. The result abstracts over `z`.
     ///
+    /// Equivalent to sum_abstract((a * b), z) but more efficient.
+    /// 
     /// _Refs_: result\
     /// _Derefs_: a, b
     pub fn add_matrix_multiply(&mut self, a: AddNode, b: AddNode, z: &[u16]) -> AddNode {

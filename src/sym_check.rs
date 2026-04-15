@@ -8,7 +8,7 @@
 //! This module computes an ADD that maps each current state to its probability,
 //! then evaluates that ADD in the (single) initial state.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use tracing::{debug, info, trace};
 
 use crate::ast::{Expr, PathFormula, Property};
@@ -22,14 +22,18 @@ pub enum PropertyEvaluation {
     Unsupported(&'static str),
 }
 
-/// Converts a boolean state formula into a current-state BDD.
+/// Converts a boolean state formula into a current-state BDD.\
+/// __Refs__: result\
+/// __Derefs__: none
 fn state_formula_to_bdd(dtmc: &mut SymbolicDTMC, expr: &Expr) -> BddNode {
     trace!("Translating state formula to BDD: {}", expr);
     let expr_add = translate_expr(expr, dtmc);
     dtmc.mgr.add_to_bdd(expr_add)
 }
 
-/// Evaluates an ADD of state values at the initial state using `Cudd_Eval`.
+/// Evaluates an ADD of state values at the initial state using `Cudd_Eval`.\
+/// __Refs__: none\
+/// __Derefs__: values
 fn evaluate_add_in_initial_state(dtmc: &mut SymbolicDTMC, values: AddNode) -> f64 {
     let init = dtmc.get_init_bdd();
     let inputs = dtmc
@@ -44,6 +48,8 @@ fn evaluate_add_in_initial_state(dtmc: &mut SymbolicDTMC, values: AddNode) -> f6
 }
 
 /// Computes the probability ADD for `P=? [X phi]`.
+/// __Refs__: result\
+/// __Derefs__: none
 fn check_next_probability_add(dtmc: &mut SymbolicDTMC, phi: &Expr) -> AddNode {
     let phi_bdd = state_formula_to_bdd(dtmc, phi);
     let phi_add = dtmc.mgr.bdd_to_add(phi_bdd);
@@ -56,7 +62,9 @@ fn check_next_probability_add(dtmc: &mut SymbolicDTMC, phi: &Expr) -> AddNode {
         .add_matrix_multiply(dtmc.transitions, phi_next, &dtmc.next_var_indices)
 }
 
-/// Computes the probability ADD for `P=? [phi1 U<=k phi2]`.
+/// Computes the probability ADD for `P=? [phi1 U<=k phi2]`.\
+/// __Refs__: result\
+/// __Derefs__: none
 fn check_bounded_until_probability_add(
     dtmc: &mut SymbolicDTMC,
     phi1: &Expr,
@@ -174,6 +182,8 @@ fn solve_jacobi(dtmc: &mut SymbolicDTMC, a: AddNode, b: AddNode, init: AddNode) 
     }
 }
 
+/// __Refs__: result\
+/// __Derefs__: phi1, phi2
 fn prob0(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode) -> BddNode {
     let mut sol = phi2;
     let mut iterations = 0usize;
@@ -189,13 +199,13 @@ fn prob0(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode) -> BddNode {
         let t_01 = dtmc.get_transitions_01();
         let post = dtmc
             .mgr
-            .bdd_and_abstract(t_01, sol_next, dtmc.next_var_cube);
+            .bdd_and_then_existsabs(t_01, sol_next, dtmc.next_var_cube);
 
         dtmc.mgr.ref_node(phi1.0);
-        let step = dtmc.mgr.bdd_and(BddNode(phi1.0), post);
+        let step = dtmc.mgr.bdd_and(phi1, post);
 
         dtmc.mgr.ref_node(sol.0);
-        let sol_prime = dtmc.mgr.bdd_or(BddNode(sol.0), step);
+        let sol_prime = dtmc.mgr.bdd_or(sol, step);
 
         dtmc.mgr.deref_node(sol.0);
         if sol_prime == sol {
@@ -213,6 +223,8 @@ fn prob0(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode) -> BddNode {
     dtmc.mgr.bdd_and(reachable, not_sol)
 }
 
+/// __Refs__: result\
+/// __Derefs__: phi1, phi2, s_no
 fn prob1(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode, s_no: BddNode) -> BddNode {
     let not_phi2 = dtmc.mgr.bdd_not(phi2);
     let phi1_and_not_phi2 = dtmc.mgr.bdd_and(phi1, not_phi2);
@@ -231,13 +243,13 @@ fn prob1(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode, s_no: BddNode) -
         let t_01 = dtmc.get_transitions_01();
         let post = dtmc
             .mgr
-            .bdd_and_abstract(t_01, sol_next, dtmc.next_var_cube);
+            .bdd_and_then_existsabs(t_01, sol_next, dtmc.next_var_cube);
 
         dtmc.mgr.ref_node(phi1_and_not_phi2.0);
-        let step = dtmc.mgr.bdd_and(BddNode(phi1_and_not_phi2.0), post);
+        let step = dtmc.mgr.bdd_and(phi1_and_not_phi2, post);
 
         dtmc.mgr.ref_node(sol.0);
-        let sol_prime = dtmc.mgr.bdd_or(BddNode(sol.0), step);
+        let sol_prime = dtmc.mgr.bdd_or(sol, step);
 
         dtmc.mgr.deref_node(sol.0);
         if sol_prime == sol {
@@ -255,6 +267,8 @@ fn prob1(dtmc: &mut SymbolicDTMC, phi1: BddNode, phi2: BddNode, s_no: BddNode) -
     dtmc.mgr.bdd_and(reachable, not_sol)
 }
 
+/// __Refs__: result\
+/// __Derefs__: none
 fn check_unbounded_until_probability_add(
     dtmc: &mut SymbolicDTMC,
     phi1: &Expr,
@@ -267,12 +281,12 @@ fn check_unbounded_until_probability_add(
 
     dtmc.mgr.ref_node(phi1_bdd.0);
     dtmc.mgr.ref_node(phi2_bdd.0);
-    let s_no = prob0(dtmc, BddNode(phi1_bdd.0), BddNode(phi2_bdd.0));
+    let s_no = prob0(dtmc, phi1_bdd, phi2_bdd);
     dtmc.mgr.ref_node(s_no.0);
     let s_yes = prob1(dtmc, phi1_bdd, phi2_bdd, s_no);
 
     dtmc.mgr.ref_node(s_yes.0);
-    let no_or_yes = dtmc.mgr.bdd_or(s_no, s_yes);
+    let no_or_yes = dtmc.mgr.bdd_or(s_no, s_yes); // consume s_no
     let not_no_or_yes = dtmc.mgr.bdd_not(no_or_yes);
 
     let reachable = dtmc.get_reachable_bdd();
@@ -288,7 +302,7 @@ fn check_unbounded_until_probability_add(
 
     let a = dtmc.mgr.add_minus(identity_add, t_question);
 
-    let b = dtmc.mgr.bdd_to_add(s_yes);
+    let b = dtmc.mgr.bdd_to_add(s_yes); // consume s_yes
 
     dtmc.mgr.ref_node(b.0);
     solve_jacobi(dtmc, a, b, b)
