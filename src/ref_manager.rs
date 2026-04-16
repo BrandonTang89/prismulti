@@ -35,8 +35,6 @@ use sylvan_sys::{
 };
 
 pub const EPS: f64 = 1e-10;
-/// Maximum number of leaked nodes reported by leak diagnostics.
-pub static LEAK_REPORT_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Copy)]
 /// Basic structural statistics for an ADD.
