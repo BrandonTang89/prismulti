@@ -38,8 +38,6 @@ use sylvan_sys::{
     },
 };
 
-use crate::ref_manager::protected_slot::ProtectedVarSetSlot;
-
 pub const EPS: f64 = 1e-10;
 
 #[derive(Debug, Clone, Copy)]
@@ -88,7 +86,6 @@ struct SylvanRuntime {
 /// Owns a Sylvan runtime handle and provides typed BDD/ADD operations.
 pub struct RefManager {
     next_var_index: BDDVAR,
-    var_set_cache: HashMap<Vec<BDDVAR>, ProtectedVarSetSlot>,
     swap_map_cache: HashMap<(Vec<BDDVAR>, Vec<BDDVAR>), ProtectedSlot>,
     runtime_guard: Option<MutexGuard<'static, ()>>,
 }
@@ -209,7 +206,6 @@ impl RefManager {
         ensure_runtime_started();
         Self {
             next_var_index: 0,
-            var_set_cache: HashMap::new(),
             swap_map_cache: HashMap::new(),
             runtime_guard: Some(runtime_guard),
         }
@@ -234,10 +230,6 @@ impl RefManager {
         regular_raw(node)
     }
 
-    fn ensure_var_index(&mut self, idx: BDDVAR) {
-        self.next_var_index = self.next_var_index.max(idx + 1);
-    }
-
     pub fn var_set_from_indices(&self, vars: &[BDDVAR]) -> VarSet {
         let mut arr: Vec<BDDVAR> = vars.to_vec();
         let set = self.must_node(
@@ -249,22 +241,6 @@ impl RefManager {
 
     pub fn var_set_empty(&self) -> VarSet {
         VarSet(self.must_node(unsafe { Sylvan_set_empty() }, "Sylvan_set_empty"))
-    }
-
-    fn get_or_build_var_set_from_indices(&mut self, vars: &[BDDVAR]) -> VarSet {
-        let key = vars.to_vec();
-        if let Some(set) = self.var_set_cache.get(&key) {
-            return set.get();
-        }
-
-        let set = self.var_set_from_indices(vars);
-        self.var_set_cache
-            .insert(key, ProtectedVarSetSlot::new(set));
-        set
-    }
-
-    fn get_or_build_cube_set(&self, cube: MTBDD) -> VarSet {
-        VarSet(self.regular_node(cube))
     }
 
     fn build_swap_map_uncached(&self, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
@@ -321,7 +297,6 @@ impl RefManager {
 
     /// Releases internal memoization roots that are retained by the manager.
     pub fn clear_internal_caches(&mut self) {
-        self.var_set_cache.clear();
         self.swap_map_cache.clear();
     }
 
@@ -609,7 +584,6 @@ impl RefManager {
     /// both index slices must have the same length.
     ///
     /// __Refs__: result\
-    /// __Derefs__: f
     pub fn bdd_swap_variables(&mut self, f: BddNode, x: &[BDDVAR], y: &[BDDVAR]) -> BddNode {
         assert_eq!(x.len(), y.len());
         let mut guard = LocalRootsGuard::new();
@@ -628,7 +602,6 @@ impl RefManager {
     /// Both index slices must have the same length.
     ///
     /// __Refs__: result\
-    /// __Derefs__: f
     pub fn add_swap_vars(&mut self, f: AddNode, x: &[BDDVAR], y: &[BDDVAR]) -> AddNode {
         assert_eq!(x.len(), y.len());
         let mut guard = LocalRootsGuard::new();
@@ -651,8 +624,8 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: a, b
-    pub fn add_matrix_multiply(&mut self, a: AddNode, b: AddNode, z: &[BDDVAR]) -> AddNode {
-        let vars = self.get_or_build_var_set_from_indices(z);
+    pub fn add_matrix_multiply(&self, a: AddNode, b: AddNode, z: &[BDDVAR]) -> AddNode {
+        let vars = self.var_set_from_indices(z);
 
         self.add_matrix_multiply_with_var_set(a, b, vars)
     }
@@ -662,7 +635,7 @@ impl RefManager {
     /// __Refs__: result\
     /// __Derefs__: a, b
     pub fn add_matrix_multiply_with_var_set(
-        &mut self,
+        &self,
         a: AddNode,
         b: AddNode,
         vars: VarSet,
@@ -678,9 +651,9 @@ impl RefManager {
         AddNode(n)
     }
 
-    /// Returns an internal cached variable-set node for `vars`.
-    pub fn get_var_set_for_indices(&mut self, vars: &[BDDVAR]) -> VarSet {
-        self.get_or_build_var_set_from_indices(vars)
+    /// Returns a var set node for `vars`.
+    pub fn get_var_set_for_indices(&self, vars: &[BDDVAR]) -> VarSet {
+        self.var_set_from_indices(vars)
     }
 
     /// Returns an internal cached swap-map node for `(x, y)`.
@@ -804,7 +777,7 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: f
-    pub fn add_sum_abstract(&mut self, f: AddNode, vars: VarSet) -> AddNode {
+    pub fn add_sum_abstract(&self, f: AddNode, vars: VarSet) -> AddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, f_rooted, f);
         crate::new_protected!(guard, cube_rooted, vars);
@@ -822,39 +795,37 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: f
-    pub fn add_or_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
-        self.add_max_abstract(f, cube)
+    pub fn add_or_abstract(&self, f: AddNode, vars: VarSet) -> AddNode {
+        self.add_max_abstract(f, vars)
     }
 
-    /// Max abstraction over ADD `f` with respect to `cube`.
+    /// Max abstraction over ADD `f` with respect to `vars`.
     ///
     /// __Refs__: result\
     /// __Derefs__: f
-    pub fn add_max_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
+    pub fn add_max_abstract(&self, f: AddNode, vars: VarSet) -> AddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, f_rooted, f);
-        crate::new_protected!(guard, cube_rooted, cube);
-        let vars = self.get_or_build_cube_set(cube_rooted.0);
+        crate::new_protected!(guard, vars_rooted, vars);
 
         let n = self.must_node(
-            unsafe { Sylvan_mtbdd_abstract_max(f_rooted.0, vars.0) },
+            unsafe { Sylvan_mtbdd_abstract_max(f_rooted.0, vars_rooted.0) },
             "Sylvan_mtbdd_abstract_max",
         );
         AddNode(n)
     }
 
-    /// Min abstraction over ADD `f` with respect to `cube`.
+    /// Min abstraction over ADD `f` with respect to `vars`.
     ///
     /// __Refs__: result\
     /// __Derefs__: f
-    pub fn add_min_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
+    pub fn add_min_abstract(&self, f: AddNode, vars: VarSet) -> AddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, f_rooted, f);
-        crate::new_protected!(guard, cube_rooted, cube);
-        let vars = self.get_or_build_cube_set(cube_rooted.0);
+        crate::new_protected!(guard, vars_rooted, vars);
 
         let n = self.must_node(
-            unsafe { Sylvan_mtbdd_abstract_min(f_rooted.0, vars.0) },
+            unsafe { Sylvan_mtbdd_abstract_min(f_rooted.0, vars_rooted.0) },
             "Sylvan_mtbdd_abstract_min",
         );
         AddNode(n)
@@ -979,7 +950,7 @@ impl RefManager {
     ///
     /// __Refs__: none\
     /// __Derefs__: none
-    pub fn bdd_count_minterms(&mut self, rel: BddNode, num_vars: u32) -> u64 {
+    pub fn bdd_count_minterms(&self, rel: BddNode, num_vars: u32) -> u64 {
         unsafe { Sylvan_mtbdd_satcount(rel.0, num_vars as usize) }.round() as u64
     }
 
@@ -1035,7 +1006,7 @@ impl RefManager {
     ///
     /// __Refs__: none\
     /// __Derefs__: none
-    pub fn add_stats(&mut self, root: AddNode, num_vars: u32) -> AddStats {
+    pub fn add_stats(&self, root: AddNode, num_vars: u32) -> AddStats {
         let root = self.regular_node(root.0);
         let minterms = unsafe { sylvan_sys::mtbdd::Sylvan_mtbdd_satcount(root, num_vars as usize) }
             .round() as u64;
@@ -1269,14 +1240,15 @@ mod tests {
     #[test]
     fn add_max_abstract_takes_max_over_abstracted_var() {
         let mut mgr = RefManager::new();
+        let x0 = mgr.new_var();
 
-        let cond = mgr.bdd_var(0);
+        let cond = mgr.bdd_var(x0);
         let then_branch = mgr.add_const(0.2);
         let else_branch = mgr.add_const(0.7);
         let f = mgr.add_ite(cond, then_branch, else_branch);
 
-        let cube = mgr.add_var(0);
-        let max_abs = mgr.add_max_abstract(f, cube);
+        let vars = mgr.var_set_from_indices(&[x0]);
+        let max_abs = mgr.add_max_abstract(f, vars);
 
         let value = mgr
             .add_value(max_abs.0)
@@ -1292,14 +1264,15 @@ mod tests {
     #[test]
     fn add_min_abstract_takes_min_over_abstracted_var() {
         let mut mgr = RefManager::new();
+        let x0 = mgr.new_var();
 
-        let cond = mgr.bdd_var(0);
+        let cond = mgr.bdd_var(x0);
         let then_branch = mgr.add_const(0.2);
         let else_branch = mgr.add_const(0.7);
         let f = mgr.add_ite(cond, then_branch, else_branch);
 
-        let cube = mgr.add_var(0);
-        let min_abs = mgr.add_min_abstract(f, cube);
+        let vars = mgr.var_set_from_indices(&[x0]);
+        let min_abs = mgr.add_min_abstract(f, vars);
 
         let value = mgr
             .add_value(min_abs.0)

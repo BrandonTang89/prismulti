@@ -8,7 +8,7 @@
 //! This module computes an ADD that maps each current state to its probability,
 //! then evaluates that ADD in the (single) initial state.
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use tracing::{debug, info, trace};
 
 use crate::ast::{Expr, PathFormula, Property};
@@ -165,8 +165,7 @@ fn solve_jacobi(dtmc: &mut SymbolicDTMC, a: AddNode, b: AddNode, init: AddNode) 
         .mgr
         .add_matrix_multiply_with_var_set(a_diag, ones, next_var_set);
 
-    let next_var_cube_add = AddNode(dtmc.next_var_cube.get().0);
-    let d = dtmc.mgr.add_max_abstract(d, next_var_cube_add);
+    let d = dtmc.mgr.add_max_abstract(d, dtmc.next_var_cube.get());
 
     let neg_one = dtmc.mgr.add_const(-1.0);
     let a_neg = dtmc.mgr.add_times(a, neg_one);

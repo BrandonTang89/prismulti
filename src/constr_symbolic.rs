@@ -57,14 +57,20 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
 
             let mgr = &mut dtmc.mgr;
 
-            let var_indices = (0..num_bits).map(|_| mgr.new_var()).collect::<Vec<_>>();
-            for var_idx in &var_indices {
-                let node = mgr.bdd_var(*var_idx);
-                dtmc.var_node_roots.push(ProtectedBddSlot::new(node));
-            }
+            let mut curr_indices = Vec::with_capacity(num_bits as usize);
+            let mut next_indices = Vec::with_capacity(num_bits as usize);
+            for _ in 0..num_bits {
+                let curr = mgr.new_var();
+                let next = mgr.new_var();
 
-            let curr_indices: Vec<BDDVAR> = var_indices.chunks(2).map(|c| c[0]).collect();
-            let next_indices: Vec<BDDVAR> = var_indices.chunks(2).map(|c| c[1]).collect();
+                curr_indices.push(curr);
+                next_indices.push(next);
+
+                let curr_node = mgr.bdd_var(curr);
+                dtmc.var_node_roots.push(ProtectedBddSlot::new(curr_node));
+                let next_node = mgr.bdd_var(next);
+                dtmc.var_node_roots.push(ProtectedBddSlot::new(next_node));
+            }
 
             for (i, &curr) in curr_indices.iter().enumerate() {
                 dtmc.dd_var_names
@@ -75,12 +81,6 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
                     .insert(next, format!("{}'_{}", var_name, i));
             }
 
-            let curr_cube = mgr.var_set_from_indices(&curr_indices);
-            dtmc.curr_var_set.set(curr_cube);
-
-            let next_cube = mgr.var_set_from_indices(&next_indices);
-            dtmc.next_var_cube.set(next_cube);
-
             dtmc.curr_name_to_indices
                 .insert(var_name.clone(), curr_indices);
             dtmc.next_name_to_indices
@@ -88,11 +88,13 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
 
             trace!(
                 "Allocated var '{}' with curr BDD vars: {:?}",
-                var_name, dtmc.curr_name_to_indices[var_name]
+                var_name,
+                dtmc.curr_name_to_indices[var_name]
             );
             trace!(
                 "Allocated var '{}' with next BDD vars: {:?}",
-                var_name, dtmc.next_name_to_indices[var_name]
+                var_name,
+                dtmc.next_name_to_indices[var_name]
             );
         }
     }
@@ -113,6 +115,11 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
     }
     dtmc.curr_var_indices = curr_var_indices;
     dtmc.next_var_indices = next_var_indices;
+
+    let curr_var_set = dtmc.mgr.var_set_from_indices(&dtmc.curr_var_indices);
+    dtmc.curr_var_set.set(curr_var_set);
+    let next_var_set = dtmc.mgr.var_set_from_indices(&dtmc.next_var_indices);
+    dtmc.next_var_cube.set(next_var_set);
 }
 
 /// Return ADD encoding of variable value (`curr` or `next`) with lower-bound offset.
