@@ -78,6 +78,34 @@ impl ProtectedBddSlot {
 }
 
 #[derive(Debug)]
+pub struct ProtectedVarSetSlot {
+    slot: ProtectedSlot,
+}
+
+impl ProtectedVarSetSlot {
+    pub fn new(initial: super::VarSet) -> Self {
+        Self {
+            slot: ProtectedSlot::new(initial.0),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self) -> super::VarSet {
+        super::VarSet(self.slot.get())
+    }
+
+    #[inline]
+    pub fn set(&mut self, value: super::VarSet) {
+        self.slot.set(value.0);
+    }
+
+    #[inline]
+    pub fn replace(&mut self, value: super::VarSet) -> super::VarSet {
+        super::VarSet(self.slot.replace(value.0))
+    }
+}
+
+#[derive(Debug)]
 pub struct ProtectedAddSlot {
     slot: ProtectedSlot,
 }

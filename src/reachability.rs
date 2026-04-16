@@ -26,7 +26,7 @@ pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
 
         let image_next = dtmc
             .mgr
-            .bdd_and_then_existsabs(old, trans_rel, dtmc.curr_var_cube.get());
+            .bdd_and_then_existsabs(old, trans_rel, dtmc.curr_var_set.get());
         let image_curr = dtmc
             .mgr
             .bdd_compose_with_map(image_next, next_to_curr_swap_map_rooted);

@@ -7,7 +7,7 @@ use tracing::{error, info};
 use crate::analyze::DTMCModelInfo;
 use crate::ast::DTMCAst;
 use crate::ast::utils::init_value;
-use crate::ref_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot};
+use crate::ref_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot, ProtectedVarSetSlot};
 use crate::ref_manager::{BDDVAR, BddNode, RefManager};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +30,9 @@ pub struct SymbolicDTMC {
     pub info: DTMCModelInfo,
 
     /// Variable name -> current-state DD bit nodes (LSB..MSB).
-    pub var_curr_nodes: HashMap<String, Vec<BDD>>,
+    pub curr_name_to_indices: HashMap<String, Vec<BDDVAR>>,
     /// Variable name -> next-state DD bit nodes (LSB..MSB).
-    pub var_next_nodes: HashMap<String, Vec<BDD>>,
+    pub next_name_to_indices: HashMap<String, Vec<BDDVAR>>,
 
     /// Protected roots for state-variable DD nodes stored in the maps above.
     pub var_node_roots: Vec<ProtectedBddSlot>,
@@ -43,12 +43,12 @@ pub struct SymbolicDTMC {
     pub next_var_indices: Vec<BDDVAR>,
 
     /// DD node -> human-friendly name used in DOT output.
-    pub dd_var_names: HashMap<BDD, String>,
+    pub dd_var_names: HashMap<BDDVAR, String>,
 
     /// 0-1 ADD cube over all next-state variables.
-    pub next_var_cube: ProtectedBddSlot,
+    pub next_var_cube: ProtectedVarSetSlot,
     /// 0-1 ADD cube over all current-state variables.
-    pub curr_var_cube: ProtectedBddSlot,
+    pub curr_var_set: ProtectedVarSetSlot,
 
     /// ADD transition relation P(s,s').
     pub transitions: ProtectedAddSlot,
@@ -74,28 +74,23 @@ pub struct SymbolicDTMC {
 impl SymbolicDTMC {
     /// Create an empty symbolic DTMC and allocate base roots.
     pub fn new(ast: DTMCAst, info: DTMCModelInfo) -> Self {
-        let mut mgr = RefManager::new();
-        let transitions_node = mgr.add_zero();
-        let transitions = ProtectedAddSlot::new(transitions_node);
-
-        let next_var_cube_node = mgr.bdd_one();
-        let next_var_cube = ProtectedBddSlot::new(next_var_cube_node);
-
-        let curr_var_cube_node = mgr.bdd_one();
-        let curr_var_cube = ProtectedBddSlot::new(curr_var_cube_node);
+        let mgr = RefManager::new();
+        let transitions = ProtectedAddSlot::new(mgr.add_zero());
+        let next_var_cube = ProtectedVarSetSlot::new(mgr.var_set_empty());
+        let curr_var_cube = ProtectedVarSetSlot::new(mgr.var_set_empty());
 
         Self {
             mgr,
             ast,
             info,
-            var_curr_nodes: HashMap::new(),
-            var_next_nodes: HashMap::new(),
+            curr_name_to_indices: HashMap::new(),
+            next_name_to_indices: HashMap::new(),
             var_node_roots: Vec::new(),
             curr_var_indices: Vec::new(),
             next_var_indices: Vec::new(),
             dd_var_names: HashMap::new(),
             next_var_cube,
-            curr_var_cube,
+            curr_var_set: curr_var_cube,
             transitions,
             transitions_01: OnceCell::new(),
             init: OnceCell::new(),
@@ -107,8 +102,16 @@ impl SymbolicDTMC {
 
     /// Number of state variables in the current/next encoding.
     pub fn state_variable_counts(&self) -> (u32, u32) {
-        let curr = self.var_curr_nodes.values().map(|v| v.len() as u32).sum();
-        let next = self.var_next_nodes.values().map(|v| v.len() as u32).sum();
+        let curr = self
+            .curr_name_to_indices
+            .values()
+            .map(|v| v.len() as u32)
+            .sum();
+        let next = self
+            .next_name_to_indices
+            .values()
+            .map(|v| v.len() as u32)
+            .sum();
         (curr, next)
     }
 
@@ -157,8 +160,8 @@ impl SymbolicDTMC {
     pub fn describe(&mut self) -> Vec<String> {
         let mut desc = Vec::new();
         desc.push("Variables:\n".into());
-        for (var_name, curr_nodes) in &self.var_curr_nodes {
-            let next_nodes = &self.var_next_nodes[var_name];
+        for (var_name, curr_nodes) in &self.curr_name_to_indices {
+            let next_nodes = &self.next_name_to_indices[var_name];
             desc.push(format!(
                 "  {}: curr nodes {:?}, next nodes {:?}\n",
                 var_name, curr_nodes, next_nodes
@@ -229,12 +232,12 @@ impl SymbolicDTMC {
                 assert!(init_val >= lo && init_val <= hi);
 
                 let encoded = (init_val - lo) as u32;
-                let curr_nodes = self.var_curr_nodes[&var_name].clone();
-                for (i, bit) in curr_nodes.into_iter().enumerate() {
+                let curr_nodes = self.curr_name_to_indices[&var_name].clone();
+                for (i, var_idx) in curr_nodes.into_iter().enumerate() {
                     let lit = if (encoded & (1u32 << i)) != 0 {
-                        BddNode(bit)
+                        self.mgr.bdd_var(var_idx)
                     } else {
-                        self.mgr.bdd_not(BddNode(bit))
+                        self.mgr.bdd_not(self.mgr.bdd_var(var_idx))
                     };
                     init = self.mgr.bdd_and(init, lit);
                 }

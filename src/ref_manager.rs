@@ -33,10 +33,12 @@ use sylvan_sys::{
         Sylvan_mtbdd_compose, Sylvan_mtbdd_double, Sylvan_mtbdd_equal_norm_d,
         Sylvan_mtbdd_getdouble, Sylvan_mtbdd_hascomp, Sylvan_mtbdd_isleaf, Sylvan_mtbdd_ite,
         Sylvan_mtbdd_ithvar, Sylvan_mtbdd_minus, Sylvan_mtbdd_nodecount, Sylvan_mtbdd_plus,
-        Sylvan_mtbdd_satcount, Sylvan_mtbdd_strict_threshold_double, Sylvan_mtbdd_times,
-        Sylvan_set_fromarray, Sylvan_var,
+        Sylvan_mtbdd_satcount, Sylvan_mtbdd_set_from_array, Sylvan_mtbdd_strict_threshold_double,
+        Sylvan_mtbdd_times, Sylvan_set_empty, Sylvan_var,
     },
 };
+
+use crate::ref_manager::protected_slot::ProtectedVarSetSlot;
 
 pub const EPS: f64 = 1e-10;
 
@@ -57,7 +59,7 @@ pub struct BddNode(pub BDD);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BddMap(pub BDDMAP);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct BddCube(pub BDDSET);
+pub struct VarSet(pub BDDSET);
 pub type BDDVAR = SYLVAN_BDDVAR;
 
 impl BddNode {
@@ -86,7 +88,7 @@ struct SylvanRuntime {
 /// Owns a Sylvan runtime handle and provides typed BDD/ADD operations.
 pub struct RefManager {
     next_var_index: BDDVAR,
-    var_set_cache: HashMap<Vec<BDDVAR>, ProtectedSlot>,
+    var_set_cache: HashMap<Vec<BDDVAR>, ProtectedVarSetSlot>,
     swap_map_cache: HashMap<(Vec<BDDVAR>, Vec<BDDVAR>), ProtectedSlot>,
     runtime_guard: Option<MutexGuard<'static, ()>>,
 }
@@ -236,30 +238,36 @@ impl RefManager {
         self.next_var_index = self.next_var_index.max(idx + 1);
     }
 
-    fn var_set_from_indices(&self, vars: &[BDDVAR]) -> MTBDD {
+    pub fn var_set_from_indices(&self, vars: &[BDDVAR]) -> VarSet {
         let mut arr: Vec<BDDVAR> = vars.to_vec();
-        self.must_node(
-            unsafe { Sylvan_set_fromarray(arr.as_mut_ptr(), arr.len()) },
-            "Sylvan_set_fromarray",
-        )
+        let set = self.must_node(
+            unsafe { Sylvan_mtbdd_set_from_array(arr.as_mut_ptr(), arr.len()) },
+            "Sylvan_mtbdd_set_from_array",
+        );
+        VarSet(set)
     }
 
-    fn get_or_build_var_set_from_indices(&mut self, vars: &[BDDVAR]) -> BddCube {
+    pub fn var_set_empty(&self) -> VarSet {
+        VarSet(self.must_node(unsafe { Sylvan_set_empty() }, "Sylvan_set_empty"))
+    }
+
+    fn get_or_build_var_set_from_indices(&mut self, vars: &[BDDVAR]) -> VarSet {
         let key = vars.to_vec();
         if let Some(set) = self.var_set_cache.get(&key) {
-            return BddCube(set.get());
+            return set.get();
         }
 
         let set = self.var_set_from_indices(vars);
-        self.var_set_cache.insert(key, ProtectedSlot::new(set));
-        BddCube(set)
+        self.var_set_cache
+            .insert(key, ProtectedVarSetSlot::new(set));
+        set
     }
 
-    fn get_or_build_cube_set(&mut self, cube: MTBDD) -> BddCube {
-        BddCube(self.regular_node(cube))
+    fn get_or_build_cube_set(&self, cube: MTBDD) -> VarSet {
+        VarSet(self.regular_node(cube))
     }
 
-    fn build_swap_map_uncached(&mut self, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
+    fn build_swap_map_uncached(&self, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
         let mut guard = LocalRootsGuard::new();
 
         crate::new_protected!(
@@ -269,8 +277,8 @@ impl RefManager {
         );
 
         for (&xi, &yi) in x.iter().zip(y.iter()) {
-            self.ensure_var_index(xi);
-            self.ensure_var_index(yi);
+            assert!(xi < self.next_var_index);
+            assert!(yi < self.next_var_index);
 
             let mut iter_guard = LocalRootsGuard::new();
             crate::new_protected!(
@@ -467,33 +475,33 @@ impl RefManager {
     }
 
     /// Returns a newly referenced ADD constant zero node.
-    pub fn add_zero(&mut self) -> AddNode {
+    pub fn add_zero(&self) -> AddNode {
         self.add_const(0.0)
     }
 
     /// Returns a newly referenced ADD constant node.
-    pub fn add_const(&mut self, value: f64) -> AddNode {
+    pub fn add_const(&self, value: f64) -> AddNode {
         let n = self.must_node(unsafe { Sylvan_mtbdd_double(value) }, "Sylvan_mtbdd_double");
         AddNode(n)
     }
 
-    /// Allocates a new BDD variable and returns it referenced.
-    pub fn new_var(&mut self) -> BddNode {
+    /// Allocates a new BDD variable
+    pub fn new_var(&mut self) -> BDDVAR {
         let idx = self.next_var_index;
         self.next_var_index += 1;
-        self.bdd_var(idx)
+        idx
     }
 
     /// Returns the BDD variable node for `var_index`, referenced.
-    pub fn bdd_var(&mut self, var_index: BDDVAR) -> BddNode {
-        self.ensure_var_index(var_index);
+    pub fn bdd_var(&self, var_index: BDDVAR) -> BddNode {
+        assert!(var_index < self.next_var_index);
         let n = self.must_node(unsafe { Sylvan_ithvar(var_index) }, "Sylvan_ithvar");
         BddNode(n)
     }
 
     /// Returns the ADD variable node for `var_index`, referenced.
-    pub fn add_var(&mut self, var_index: BDDVAR) -> AddNode {
-        self.ensure_var_index(var_index);
+    pub fn add_var(&self, var_index: BDDVAR) -> AddNode {
+        assert!(var_index < self.next_var_index);
         let n = self.must_node(
             unsafe { Sylvan_mtbdd_ithvar(var_index) },
             "Sylvan_mtbdd_ithvar",
@@ -505,7 +513,7 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: a
-    pub fn bdd_not(&mut self, a: BddNode) -> BddNode {
+    pub fn bdd_not(&self, a: BddNode) -> BddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, a_rooted, a);
         let n = self.must_node(unsafe { Sylvan_not(a_rooted.0) }, "Sylvan_not");
@@ -516,7 +524,7 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: a, b
-    pub fn bdd_equals(&mut self, a: BddNode, b: BddNode) -> BddNode {
+    pub fn bdd_equals(&self, a: BddNode, b: BddNode) -> BddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, a_rooted, a);
         crate::new_protected!(guard, b_rooted, b);
@@ -531,7 +539,7 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: a, b
-    pub fn bdd_nequals(&mut self, a: BddNode, b: BddNode) -> BddNode {
+    pub fn bdd_nequals(&self, a: BddNode, b: BddNode) -> BddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, a_rooted, a);
         crate::new_protected!(guard, b_rooted, b);
@@ -543,7 +551,7 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: a, b
-    pub fn bdd_and(&mut self, a: BddNode, b: BddNode) -> BddNode {
+    pub fn bdd_and(&self, a: BddNode, b: BddNode) -> BddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, a_rooted, a);
         crate::new_protected!(guard, b_rooted, b);
@@ -555,7 +563,7 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: a, b
-    pub fn bdd_or(&mut self, a: BddNode, b: BddNode) -> BddNode {
+    pub fn bdd_or(&self, a: BddNode, b: BddNode) -> BddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, a_rooted, a);
         crate::new_protected!(guard, b_rooted, b);
@@ -567,11 +575,10 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: a
-    pub fn bdd_exists_abstract(&mut self, a: BddNode, cube: BddNode) -> BddNode {
+    pub fn bdd_exists_abstract(&self, a: BddNode, vars: VarSet) -> BddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, a_rooted, a);
-        crate::new_protected!(guard, cube_rooted, cube);
-        let vars = self.get_or_build_cube_set(cube_rooted.0);
+        crate::new_protected!(guard, cube_rooted, vars);
 
         let n = self.must_node(
             unsafe { Sylvan_exists(a_rooted.0, vars.0) },
@@ -584,12 +591,11 @@ impl RefManager {
     /// This is essentially matrix multiplication for BDDs\
     /// __Refs__: result\
     /// __Derefs__: f, g
-    pub fn bdd_and_then_existsabs(&mut self, f: BddNode, g: BddNode, cube: BddNode) -> BddNode {
+    pub fn bdd_and_then_existsabs(&self, f: BddNode, g: BddNode, vars: VarSet) -> BddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, f_rooted, f);
         crate::new_protected!(guard, g_rooted, g);
-        crate::new_protected!(guard, cube_rooted, cube);
-        let vars = self.get_or_build_cube_set(cube_rooted.0);
+        crate::new_protected!(guard, vars, vars);
 
         let n = self.must_node(
             unsafe { Sylvan_and_exists(f_rooted.0, g_rooted.0, vars.0) },
@@ -659,7 +665,7 @@ impl RefManager {
         &mut self,
         a: AddNode,
         b: AddNode,
-        vars: BddCube,
+        vars: VarSet,
     ) -> AddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, a_rooted, a);
@@ -673,7 +679,7 @@ impl RefManager {
     }
 
     /// Returns an internal cached variable-set node for `vars`.
-    pub fn get_var_set_for_indices(&mut self, vars: &[BDDVAR]) -> BddCube {
+    pub fn get_var_set_for_indices(&mut self, vars: &[BDDVAR]) -> VarSet {
         self.get_or_build_var_set_from_indices(vars)
     }
 
@@ -798,11 +804,10 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: f
-    pub fn add_sum_abstract(&mut self, f: AddNode, cube: AddNode) -> AddNode {
+    pub fn add_sum_abstract(&mut self, f: AddNode, vars: VarSet) -> AddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, f_rooted, f);
-        crate::new_protected!(guard, cube_rooted, cube);
-        let vars = self.get_or_build_cube_set(cube_rooted.0);
+        crate::new_protected!(guard, cube_rooted, vars);
 
         let n = self.must_node(
             unsafe { Sylvan_mtbdd_abstract_plus(f_rooted.0, vars.0) },
@@ -1155,20 +1160,20 @@ impl RefManager {
     /// Builds an ADD that encodes the integer value of `nodes` as a bit-vector.
     ///
     /// Variable at index `i` contributes bit `2^i`.
-    pub fn get_encoding(&mut self, nodes: &[BDD]) -> AddNode {
+    pub fn get_encoding(&mut self, indices: &[BDDVAR]) -> AddNode {
         let mut guard = LocalRootsGuard::new();
 
         crate::new_protected!(guard, result, self.add_const(0.0));
         let bdd_one = self.bdd_one();
         crate::new_protected!(guard, bdd_one_rooted, bdd_one);
 
-        for bm in 0..(1i32 << nodes.len()) {
+        for bm in 0..(1i32 << indices.len()) {
             let mut term = bdd_one;
-            for (i, &var) in nodes.iter().enumerate() {
+            for (i, &var) in indices.iter().enumerate() {
                 let literal = if (bm & (1 << i)) != 0 {
-                    BddNode(var)
+                    self.bdd_var(var)
                 } else {
-                    self.bdd_not(BddNode(var))
+                    self.bdd_not(self.bdd_var(var))
                 };
                 term = self.bdd_and(term, literal);
             }
@@ -1185,13 +1190,12 @@ impl RefManager {
     ///
     /// __Refs__: result\
     /// __Derefs__: m, next_var_cube
-    pub fn unif(&mut self, m: AddNode, next_var_cube: BddNode) -> AddNode {
+    pub fn unif(&mut self, m: AddNode, vars: VarSet) -> AddNode {
         let mut guard = LocalRootsGuard::new();
         crate::new_protected!(guard, m_rooted, m);
-        crate::new_protected!(guard, next_var_cube_rooted, next_var_cube);
+        crate::new_protected!(guard, next_var_cube_rooted, vars);
 
-        crate::new_protected!(guard, next_cube_add, AddNode(next_var_cube_rooted.0));
-        crate::new_protected!(guard, denom, self.add_sum_abstract(m, next_cube_add));
+        crate::new_protected!(guard, denom, self.add_sum_abstract(m, next_var_cube_rooted));
 
         crate::new_protected!(guard, denom_bdd, self.add_to_bdd(denom));
         crate::new_protected!(guard, one, self.add_const(1.0));
@@ -1229,7 +1233,8 @@ mod tests {
     fn extract_leftmost_path_handles_non_complemented_root() {
         let mut mgr = RefManager::new();
 
-        let x0 = mgr.new_var();
+        let x0_idx = mgr.new_var();
+        let x0 = mgr.bdd_var(x0_idx);
         assert!(!x0.is_complemented());
 
         let witness = mgr
@@ -1246,7 +1251,8 @@ mod tests {
     fn extract_leftmost_path_handles_complemented_root() {
         let mut mgr = RefManager::new();
 
-        let x0 = mgr.new_var();
+        let x0_idx = mgr.new_var();
+        let x0 = mgr.bdd_var(x0_idx);
         let not_x0 = mgr.bdd_not(x0);
         assert!(not_x0.is_complemented());
 

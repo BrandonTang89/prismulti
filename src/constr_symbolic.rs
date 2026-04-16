@@ -1,6 +1,7 @@
+use core::num;
 use std::collections::{HashMap, HashSet};
 
-use sylvan_sys::BDD;
+use sylvan_sys::{BDD, BDDVAR};
 
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
@@ -55,49 +56,43 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
             };
 
             let mgr = &mut dtmc.mgr;
-            let nodes: Vec<BDD> = (0..num_bits * 2).map(|_| mgr.new_var().0).collect();
-            dtmc.var_node_roots.extend(
-                nodes
-                    .iter()
-                    .copied()
-                    .map(|node| ProtectedBddSlot::new(BddNode(node))),
-            );
-            let curr_nodes: Vec<BDD> = nodes.chunks(2).map(|c| c[0]).collect();
-            let next_nodes: Vec<BDD> = nodes.chunks(2).map(|c| c[1]).collect();
 
-            for (i, &curr) in curr_nodes.iter().enumerate() {
+            let var_indices = (0..num_bits).map(|_| mgr.new_var()).collect::<Vec<_>>();
+            for var_idx in &var_indices {
+                let node = mgr.bdd_var(*var_idx);
+                dtmc.var_node_roots.push(ProtectedBddSlot::new(node));
+            }
+
+            let curr_indices: Vec<BDDVAR> = var_indices.chunks(2).map(|c| c[0]).collect();
+            let next_indices: Vec<BDDVAR> = var_indices.chunks(2).map(|c| c[1]).collect();
+
+            for (i, &curr) in curr_indices.iter().enumerate() {
                 dtmc.dd_var_names
                     .insert(curr, format!("{}_{}", var_name, i));
             }
-            for (i, &next) in next_nodes.iter().enumerate() {
+            for (i, &next) in next_indices.iter().enumerate() {
                 dtmc.dd_var_names
                     .insert(next, format!("{}'_{}", var_name, i));
             }
 
-            let curr_cube = curr_nodes
-                .iter()
-                .fold(dtmc.curr_var_cube.get(), |cube, &node| {
-                    mgr.bdd_and(cube, BddNode(node))
-                });
-            dtmc.curr_var_cube.set(curr_cube);
+            let curr_cube = mgr.var_set_from_indices(&curr_indices);
+            dtmc.curr_var_set.set(curr_cube);
 
-            let next_cube = next_nodes
-                .iter()
-                .fold(dtmc.next_var_cube.get(), |cube, &node| {
-                    mgr.bdd_and(cube, BddNode(node))
-                });
+            let next_cube = mgr.var_set_from_indices(&next_indices);
             dtmc.next_var_cube.set(next_cube);
 
-            dtmc.var_curr_nodes.insert(var_name.clone(), curr_nodes);
-            dtmc.var_next_nodes.insert(var_name.clone(), next_nodes);
+            dtmc.curr_name_to_indices
+                .insert(var_name.clone(), curr_indices);
+            dtmc.next_name_to_indices
+                .insert(var_name.clone(), next_indices);
 
             trace!(
                 "Allocated var '{}' with curr BDD vars: {:?}",
-                var_name, dtmc.var_curr_nodes[var_name]
+                var_name, dtmc.curr_name_to_indices[var_name]
             );
             trace!(
                 "Allocated var '{}' with next BDD vars: {:?}",
-                var_name, dtmc.var_next_nodes[var_name]
+                var_name, dtmc.next_name_to_indices[var_name]
             );
         }
     }
@@ -107,12 +102,12 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
     for module in &dtmc.ast.modules {
         for var_decl in &module.local_vars {
             let var_name = &var_decl.name;
-            for (&curr, &next) in dtmc.var_curr_nodes[var_name]
+            for (&curr, &next) in dtmc.curr_name_to_indices[var_name]
                 .iter()
-                .zip(dtmc.var_next_nodes[var_name].iter())
+                .zip(dtmc.next_name_to_indices[var_name].iter())
             {
-                curr_var_indices.push(dtmc.mgr.read_var_index(curr));
-                next_var_indices.push(dtmc.mgr.read_var_index(next));
+                curr_var_indices.push(curr);
+                next_var_indices.push(next);
             }
         }
     }
@@ -131,9 +126,9 @@ fn get_variable_encoding(dtmc: &mut SymbolicDTMC, var_name: &str, primed: bool) 
     let mgr = &mut dtmc.mgr;
     let offset_add = mgr.add_const(*lo as f64);
     let variable_nodes = if primed {
-        &dtmc.var_next_nodes[var_name]
+        &dtmc.next_name_to_indices[var_name]
     } else {
-        &dtmc.var_curr_nodes[var_name]
+        &dtmc.curr_name_to_indices[var_name]
     };
     let encoding = mgr.get_encoding(variable_nodes);
     mgr.add_plus(encoding, offset_add)
@@ -278,10 +273,10 @@ fn translate_update(
         if assigned_vars.contains(var_name) {
             continue;
         }
-        let curr_nodes = dtmc.var_curr_nodes[var_name].clone();
-        let next_nodes = dtmc.var_next_nodes[var_name].clone();
+        let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
+        let next_nodes = dtmc.next_name_to_indices[var_name].clone();
         for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
-            let eq = mgr.bdd_equals(BddNode(curr), BddNode(next));
+            let eq = mgr.bdd_equals(mgr.bdd_var(curr), mgr.bdd_var(next));
             let eq_add = mgr.bdd_to_add(eq);
             assign = mgr.add_times(assign, eq_add);
         }
@@ -329,10 +324,12 @@ fn translate_module(module: &Module, dtmc: &mut SymbolicDTMC) -> SymbolicModule 
 
     crate::new_protected!(guard, ident, dtmc.mgr.bdd_one());
     for var_name in module.local_vars.iter().map(|v| &v.name) {
-        let curr_nodes = dtmc.var_curr_nodes[var_name].clone();
-        let next_nodes = dtmc.var_next_nodes[var_name].clone();
+        let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
+        let next_nodes = dtmc.next_name_to_indices[var_name].clone();
         for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
-            let eq = dtmc.mgr.bdd_equals(BddNode(curr), BddNode(next));
+            let eq = dtmc
+                .mgr
+                .bdd_equals(dtmc.mgr.bdd_var(curr), dtmc.mgr.bdd_var(next));
             ident = dtmc.mgr.bdd_and(ident, eq);
         }
     }

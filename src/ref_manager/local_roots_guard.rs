@@ -31,7 +31,7 @@ impl Protectable for super::BddMap {
     }
 }
 
-impl Protectable for super::BddCube {
+impl Protectable for super::VarSet {
     fn as_mtbdd_ptr(&mut self) -> *mut MTBDD {
         &mut self.0 as *mut MTBDD
     }
