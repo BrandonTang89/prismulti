@@ -1,7 +1,7 @@
 # AGENTS
 
 ## Fast Start
-- Run all checks with `RUST_TEST_THREADS=1 cargo test -- --nocapture`.
+- Run all checks with `cargo test -- --nocapture`.
 - Run one integration test file with `cargo test --test dtmc_sym_constr_tests -- --nocapture`.
 - Run symbolic checking tests with `cargo test --test dtmc_sym_check_tests -- --nocapture`.
 - Run one test case with `cargo test --test dtmc_sym_constr_tests dtmc_simple_constr -- --nocapture`.
@@ -15,7 +15,6 @@
 - Runtime tuning is env-driven in `RefManager`: `PRISM_SYLVAN_WORKERS` (default `1`), `PRISM_SYLVAN_MEMORY_CAP`, `PRISM_SYLVAN_TABLE_RATIO`, `PRISM_SYLVAN_INITIAL_RATIO`, `PRISM_SYLVAN_GRANULARITY`, `PRISM_TRACK_REFS`.
 - Sylvan/Lace runtime is process-global in our wrapper; parallel Rust test threads can deadlock/stall, so run test suites with `RUST_TEST_THREADS=1` unless runtime synchronization changes.
 - For many small/medium benchmarks in this repo, `PRISM_SYLVAN_WORKERS=1` is often fastest; parallel workers tend to help only on heavier workloads.
-- CI currently runs Cargo tests only (`.github/workflows/ci.yml`); Nix flake checks are present but commented out.
 - Toolchain is pinned via `rust-toolchain.toml`.
 
 ## Architecture (what matters when editing)
@@ -28,11 +27,6 @@
 ## Sylvan Type Discipline (critical)
 - `BddNode` wraps nodes used with `Sylvan_*` boolean operations.
 - `AddNode` wraps nodes used with `Sylvan_mtbdd_*` numeric operations.
-- Any function that takes or returns `BddNode`/`AddNode` must include an explicit
-  doc comment contract in this style:
-  - `__Refs__: ...`
-  - `__Derefs__: ...`
-  This is mandatory so ownership and ref-count behavior stays auditable.
 - Convert explicitly when crossing APIs:
   - ADD -> BDD: `add_to_bdd` / `add_to_bdd_pattern`
   - BDD -> ADD: `bdd_to_add`
@@ -40,10 +34,6 @@
 - Abstraction helpers are explicitly separated by intent: `add_sum_abstract`, `add_or_abstract`, `add_max_abstract`, and `add_min_abstract`.
 - Numerical convergence checks use `add_equal_sup_norm(..., mgr.epsilon())` (`EPS = 1e-10`).
 - `RefManager` now internally caches cube-sets, var-sets, and swap maps for hot paths; caches are cleared during DTMC release/drop.
-
-## Ref / Leak Checks
-- Leak check path is Sylvan-wrapper based via tracked refs in `RefManager::nonzero_ref_count()`.
-- `RefManager::debug_check()` validates tracked nodes with `Sylvan_mtbdd_test_isvalid`.
 
 ## Test Expectations You Should Not Accidentally Break
 - `tests/dtmc_sym_constr_tests.rs` asserts transition node count, terminal count, minterms, reachable states, and zero nonzero refs via `release_report()`.

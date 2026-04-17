@@ -1,27 +1,21 @@
-I'm in the middle of moving over to using pointer protection for all the BDDs and ADDs
 
-obseerve and example function below:
+Using local roots guard is inefficient since we very frequently allocate memory on the heap with the use of Vec.
+We will replace its functionality entirely with the use of protected local.
 
-f(a: AddNode, b: BddNode) -> AddNode {
-    // we can assume that a and b are protected by the caller
-    let mut guard = LocalRootsGuard::new();
+The idea is that for each temporary we make, we store it within a protected local.
 
-    let mut c = add_zero(); // sadly all our temporaries need to be mutable. For hygiene, we declare all of the that are local to a function once and then protect them all.
-    guard.protect(c); // this should be called on every new temporary variable that is created in the function.  (Ideally these 2 lines should come together as macro maybe)
-    
-    let mut d = bdd_zero();
-    guard.protect(d); // (Ideally these 2 lines should come together as macro maybe)
-    
-    c = self.add_op(a, a); // this is automatically protected because it is stored in c
-    c = self.add_op(c, a); // this is automatically protected because it is stored in c
+The current API is also quite messy on using local roots guard is also very messy which I dislike. It is not clear who supposed to protect what. So lets make this clear
 
-    return c; // the caller will store this within their own local variable, which should be protected by the caller's guard
-} // once guard goes out of scope, all the variables that it protects are unprotected
+For EVERY function of the form
 
-protected_slot should be used within structs that contain BDDs or ADDs, such as SymbolicDTMC. 
+fn foo(a: BddNode, b: BddNode, ...) -> BddNode
 
+it is the CALLER's responsibility to protect a and b (and the rest of the parameters) as well as the result.
+Within foo, we only need to protect temporaries we create. So most of the functions currently in ref_manger.rs should be changed to assume this.
+We should also inspect each and every call site to fix the API contract and ensure that the caller is protecting the parameters and result as required.
 
+Also help me to move all methods that don't actually depend on ref_manager.rs out of the impl of RefManager.
 
+Ensure that all tests continue to pass after this change.
 
-
-Docs for sylvan is https://trolando.github.io/sylvan/
+Good luck

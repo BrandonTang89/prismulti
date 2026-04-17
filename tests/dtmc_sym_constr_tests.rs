@@ -1,5 +1,6 @@
 use anyhow::Result;
 use prismulti::constr_symbolic::build_symbolic_dtmc;
+use prismulti::dd;
 use prismulti::parser::parse_dtmc;
 use prismulti::symbolic_dtmc::SymbolicDTMC;
 use std::collections::HashMap;
@@ -31,7 +32,8 @@ fn test_construction(
 
     let mut symbolic_dtmc = construct_symbolic_dtmc(&model_str, const_overrides)
         .expect("Failed to construct symbolic DTMC");
-    let stats = symbolic_dtmc.mgr.add_stats(
+    let stats = dd::add_stats(
+        &symbolic_dtmc.mgr,
         symbolic_dtmc.transitions.get(),
         symbolic_dtmc.total_variable_count() as u32,
     );

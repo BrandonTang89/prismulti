@@ -5,9 +5,10 @@ use tracing::{debug, info, trace};
 
 use crate::analyze::DTMCModelInfo;
 use crate::ast::*;
+use crate::dd;
 use crate::reachability::compute_reachable_and_filter;
 use crate::ref_manager::AddNode;
-use crate::ref_manager::local_roots_guard::LocalRootsGuard;
+use crate::ref_manager::protected_local::{ProtectedAddLocal, ProtectedBddLocal};
 use crate::ref_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot};
 use crate::symbolic_dtmc::SymbolicDTMC;
 
@@ -63,9 +64,9 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
                 curr_indices.push(curr);
                 next_indices.push(next);
 
-                let curr_node = mgr.bdd_var(curr);
+                let curr_node = dd::bdd_var(mgr, curr);
                 dtmc.var_node_roots.push(ProtectedBddSlot::new(curr_node));
-                let next_node = mgr.bdd_var(next);
+                let next_node = dd::bdd_var(mgr, next);
                 dtmc.var_node_roots.push(ProtectedBddSlot::new(next_node));
             }
 
@@ -111,9 +112,9 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
     dtmc.curr_var_indices = curr_var_indices;
     dtmc.next_var_indices = next_var_indices;
 
-    let curr_var_set = dtmc.mgr.var_set_from_indices(&dtmc.curr_var_indices);
+    let curr_var_set = dd::var_set_from_indices(&dtmc.mgr, &dtmc.curr_var_indices);
     dtmc.curr_var_set.set(curr_var_set);
-    let next_var_set = dtmc.mgr.var_set_from_indices(&dtmc.next_var_indices);
+    let next_var_set = dd::var_set_from_indices(&dtmc.mgr, &dtmc.next_var_indices);
     dtmc.next_var_cube.set(next_var_set);
 }
 
@@ -126,14 +127,14 @@ fn get_variable_encoding(dtmc: &mut SymbolicDTMC, var_name: &str, primed: bool) 
         .unwrap_or_else(|| panic!("Variable '{}' not found in model info", var_name));
 
     let mgr = &mut dtmc.mgr;
-    let offset_add = mgr.add_const(*lo as f64);
+    let offset_add = ProtectedAddLocal::new(dd::add_const(mgr, *lo as f64));
     let variable_nodes = if primed {
         &dtmc.next_name_to_indices[var_name]
     } else {
         &dtmc.curr_name_to_indices[var_name]
     };
-    let encoding = mgr.get_encoding(variable_nodes);
-    mgr.add_plus(encoding, offset_add)
+    let encoding = ProtectedAddLocal::new(dd::get_encoding(mgr, variable_nodes));
+    dd::add_plus(mgr, encoding.get(), offset_add.get())
 }
 
 /// Translate an AST expression to a referenced ADD node.
@@ -142,9 +143,9 @@ fn get_variable_encoding(dtmc: &mut SymbolicDTMC, var_name: &str, primed: bool) 
 /// keep state-formula semantics consistent.
 pub fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
     match expr {
-        Expr::IntLit(i) => dtmc.mgr.add_const(*i as f64),
-        Expr::FloatLit(f) => dtmc.mgr.add_const(*f),
-        Expr::BoolLit(b) => dtmc.mgr.add_const(if *b { 1.0 } else { 0.0 }),
+        Expr::IntLit(i) => dd::add_const(&dtmc.mgr, *i as f64),
+        Expr::FloatLit(f) => dd::add_const(&dtmc.mgr, *f),
+        Expr::BoolLit(b) => dd::add_const(&dtmc.mgr, if *b { 1.0 } else { 0.0 }),
         Expr::Ident(name) => get_variable_encoding(dtmc, name, false),
         Expr::PrimedIdent(name) => get_variable_encoding(dtmc, name, true),
         Expr::LabelRef(name) => {
@@ -154,58 +155,86 @@ pub fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
             )
         }
         Expr::UnaryOp { op, operand } => {
-            let mut guard = LocalRootsGuard::new();
-            crate::new_protected!(guard, value, translate_expr(operand, dtmc));
+            let value = ProtectedAddLocal::new(translate_expr(operand, dtmc));
             match op {
                 UnOp::Not => {
-                    crate::new_protected!(guard, one, dtmc.mgr.add_const(1.0));
-                    dtmc.mgr.add_minus(one, value)
+                    let one = ProtectedAddLocal::new(dd::add_const(&dtmc.mgr, 1.0));
+                    dd::add_minus(&mut dtmc.mgr, one.get(), value.get())
                 }
                 UnOp::Neg => {
-                    crate::new_protected!(guard, zero, dtmc.mgr.add_const(0.0));
-                    dtmc.mgr.add_minus(zero, value)
+                    let zero = ProtectedAddLocal::new(dd::add_const(&dtmc.mgr, 0.0));
+                    dd::add_minus(&mut dtmc.mgr, zero.get(), value.get())
                 }
             }
         }
         Expr::BinOp { lhs, op, rhs } => {
-            let mut guard = LocalRootsGuard::new();
-            crate::new_protected!(guard, left, translate_expr(lhs, dtmc));
-            crate::new_protected!(guard, right, translate_expr(rhs, dtmc));
+            let left = ProtectedAddLocal::new(translate_expr(lhs, dtmc));
+            let right = ProtectedAddLocal::new(translate_expr(rhs, dtmc));
             match op {
-                BinOp::Plus => dtmc.mgr.add_plus(left, right),
-                BinOp::Minus => dtmc.mgr.add_minus(left, right),
-                BinOp::Mul => dtmc.mgr.add_times(left, right),
-                BinOp::Div => dtmc.mgr.add_divide(left, right),
+                BinOp::Plus => dd::add_plus(&mut dtmc.mgr, left.get(), right.get()),
+                BinOp::Minus => dd::add_minus(&mut dtmc.mgr, left.get(), right.get()),
+                BinOp::Mul => dd::add_times(&mut dtmc.mgr, left.get(), right.get()),
+                BinOp::Div => dd::add_divide(&mut dtmc.mgr, left.get(), right.get()),
                 BinOp::Eq => {
-                    let bdd = dtmc.mgr.add_equals(left, right);
-                    dtmc.mgr.bdd_to_add(bdd)
+                    let bdd = ProtectedBddLocal::new(dd::add_equals(
+                        &mut dtmc.mgr,
+                        left.get(),
+                        right.get(),
+                    ));
+                    dd::bdd_to_add(&mut dtmc.mgr, bdd.get())
                 }
                 BinOp::Neq => {
-                    let bdd = dtmc.mgr.add_nequals(left, right);
-                    dtmc.mgr.bdd_to_add(bdd)
+                    let bdd = ProtectedBddLocal::new(dd::add_nequals(
+                        &mut dtmc.mgr,
+                        left.get(),
+                        right.get(),
+                    ));
+                    dd::bdd_to_add(&mut dtmc.mgr, bdd.get())
                 }
                 BinOp::Lt => {
-                    let bdd = dtmc.mgr.add_less_than(left, right);
-                    dtmc.mgr.bdd_to_add(bdd)
+                    let bdd = ProtectedBddLocal::new(dd::add_less_than(
+                        &mut dtmc.mgr,
+                        left.get(),
+                        right.get(),
+                    ));
+                    dd::bdd_to_add(&mut dtmc.mgr, bdd.get())
                 }
                 BinOp::Leq => {
-                    let bdd = dtmc.mgr.add_less_or_equal(left, right);
-                    dtmc.mgr.bdd_to_add(bdd)
+                    let bdd = ProtectedBddLocal::new(dd::add_less_or_equal(
+                        &mut dtmc.mgr,
+                        left.get(),
+                        right.get(),
+                    ));
+                    dd::bdd_to_add(&mut dtmc.mgr, bdd.get())
                 }
                 BinOp::Gt => {
-                    let bdd = dtmc.mgr.add_greater_than(left, right);
-                    dtmc.mgr.bdd_to_add(bdd)
+                    let bdd = ProtectedBddLocal::new(dd::add_greater_than(
+                        &mut dtmc.mgr,
+                        left.get(),
+                        right.get(),
+                    ));
+                    dd::bdd_to_add(&mut dtmc.mgr, bdd.get())
                 }
                 BinOp::Geq => {
-                    let bdd = dtmc.mgr.add_greater_or_equal(left, right);
-                    dtmc.mgr.bdd_to_add(bdd)
+                    let bdd = ProtectedBddLocal::new(dd::add_greater_or_equal(
+                        &mut dtmc.mgr,
+                        left.get(),
+                        right.get(),
+                    ));
+                    dd::bdd_to_add(&mut dtmc.mgr, bdd.get())
                 }
-                BinOp::And => dtmc.mgr.add_times(left, right),
+                BinOp::And => dd::add_times(&mut dtmc.mgr, left.get(), right.get()),
                 BinOp::Or => {
-                    let add01_left = dtmc.mgr.add_to_bdd(left);
-                    let add01_right = dtmc.mgr.add_to_bdd(right);
-                    let bdd_or = dtmc.mgr.bdd_or(add01_left, add01_right);
-                    dtmc.mgr.bdd_to_add(bdd_or)
+                    let add01_left =
+                        ProtectedBddLocal::new(dd::add_to_bdd(&mut dtmc.mgr, left.get()));
+                    let add01_right =
+                        ProtectedBddLocal::new(dd::add_to_bdd(&mut dtmc.mgr, right.get()));
+                    let bdd_or = ProtectedBddLocal::new(dd::bdd_or(
+                        &dtmc.mgr,
+                        add01_left.get(),
+                        add01_right.get(),
+                    ));
+                    dd::bdd_to_add(&mut dtmc.mgr, bdd_or.get())
                 }
             }
         }
@@ -214,12 +243,16 @@ pub fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
             then_branch,
             else_branch,
         } => {
-            let mut guard = LocalRootsGuard::new();
-            crate::new_protected!(guard, cond_expr, translate_expr(cond, dtmc));
-            crate::new_protected!(guard, cond_add, dtmc.mgr.add_to_bdd(cond_expr));
-            crate::new_protected!(guard, then_add, translate_expr(then_branch, dtmc));
-            crate::new_protected!(guard, else_add, translate_expr(else_branch, dtmc));
-            dtmc.mgr.add_ite(cond_add, then_add, else_add)
+            let cond_expr = ProtectedAddLocal::new(translate_expr(cond, dtmc));
+            let cond_add = ProtectedBddLocal::new(dd::add_to_bdd(&mut dtmc.mgr, cond_expr.get()));
+            let then_add = ProtectedAddLocal::new(translate_expr(then_branch, dtmc));
+            let else_add = ProtectedAddLocal::new(translate_expr(else_branch, dtmc));
+            dd::add_ite(
+                &mut dtmc.mgr,
+                cond_add.get(),
+                then_add.get(),
+                else_add.get(),
+            )
         }
     }
 }
@@ -246,8 +279,7 @@ fn translate_update(
     module_local_vars: &[String],
     dtmc: &mut SymbolicDTMC,
 ) -> AddNode {
-    let mut guard = LocalRootsGuard::new();
-    crate::new_protected!(guard, prob, translate_expr(&update.prob, dtmc));
+    let prob = ProtectedAddLocal::new(translate_expr(&update.prob, dtmc));
 
     let assigned_vars: HashSet<String> = update
         .assignments
@@ -255,21 +287,17 @@ fn translate_update(
         .filter_map(|assignment| get_assign_target(assignment).map(|name| name.to_string()))
         .collect();
 
-    let mut symbolic_updates: Vec<AddNode> = update
+    let symbolic_updates: Vec<ProtectedAddLocal> = update
         .assignments
         .iter()
-        .map(|assignment| translate_expr(assignment, dtmc))
+        .map(|assignment| ProtectedAddLocal::new(translate_expr(assignment, dtmc)))
         .collect::<Vec<_>>();
-    for symbolic_update in &mut symbolic_updates {
-        guard.protect(symbolic_update);
-    }
 
     let mgr = &mut dtmc.mgr;
-    let add_one = mgr.add_const(1.0);
-    let mut assign = symbolic_updates
-        .iter()
-        .fold(add_one, |acc, &result| mgr.add_times(acc, result));
-    guard.protect(&mut assign);
+    let mut assign = ProtectedAddLocal::new(dd::add_const(mgr, 1.0));
+    for symbolic_update in &symbolic_updates {
+        assign.set(dd::add_times(mgr, assign.get(), symbolic_update.get()));
+    }
 
     for var_name in module_local_vars {
         if assigned_vars.contains(var_name) {
@@ -278,13 +306,15 @@ fn translate_update(
         let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
         let next_nodes = dtmc.next_name_to_indices[var_name].clone();
         for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
-            let eq = mgr.bdd_equals(mgr.bdd_var(curr), mgr.bdd_var(next));
-            let eq_add = mgr.bdd_to_add(eq);
-            assign = mgr.add_times(assign, eq_add);
+            let curr_var = ProtectedBddLocal::new(dd::bdd_var(mgr, curr));
+            let next_var = ProtectedBddLocal::new(dd::bdd_var(mgr, next));
+            let eq = ProtectedBddLocal::new(dd::bdd_equals(mgr, curr_var.get(), next_var.get()));
+            let eq_add = ProtectedAddLocal::new(dd::bdd_to_add(mgr, eq.get()));
+            assign.set(dd::add_times(mgr, assign.get(), eq_add.get()));
         }
     }
 
-    dtmc.mgr.add_times(prob, assign)
+    dd::add_times(&mut dtmc.mgr, prob.get(), assign.get())
 }
 
 /// Translate one command: `guard * (sum updates)`.
@@ -293,23 +323,19 @@ fn translate_command(
     module_local_vars: &[String],
     dtmc: &mut SymbolicDTMC,
 ) -> SymbolicCommand {
-    let mut guard = LocalRootsGuard::new();
-    crate::new_protected!(guard, cmd_guard, translate_expr(&cmd.guard, dtmc));
-    let mut updates = cmd
+    let cmd_guard = ProtectedAddLocal::new(translate_expr(&cmd.guard, dtmc));
+    let updates = cmd
         .updates
         .iter()
-        .map(|update| translate_update(update, module_local_vars, dtmc))
+        .map(|update| ProtectedAddLocal::new(translate_update(update, module_local_vars, dtmc)))
         .collect::<Vec<_>>();
-    for update in &mut updates {
-        guard.protect(update);
-    }
 
     let mgr = &mut dtmc.mgr;
-    let mut updates_sum = updates
-        .iter()
-        .fold(mgr.add_zero(), |acc, &update| mgr.add_plus(acc, update));
-    guard.protect(&mut updates_sum);
-    let transition = mgr.add_times(cmd_guard, updates_sum);
+    let mut updates_sum = ProtectedAddLocal::new(dd::add_zero(mgr));
+    for update in &updates {
+        updates_sum.set(dd::add_plus(mgr, updates_sum.get(), update.get()));
+    }
+    let transition = dd::add_times(mgr, cmd_guard.get(), updates_sum.get());
     SymbolicCommand {
         transition: ProtectedAddSlot::new(transition),
     }
@@ -317,25 +343,25 @@ fn translate_command(
 
 /// Translate one module into identity and per-action command transitions.
 fn translate_module(module: &Module, dtmc: &mut SymbolicDTMC) -> SymbolicModule {
-    let mut guard = LocalRootsGuard::new();
     let module_local_vars = module
         .local_vars
         .iter()
         .map(|v| v.name.clone())
         .collect::<Vec<_>>();
 
-    crate::new_protected!(guard, ident, dtmc.mgr.bdd_one());
+    let mut ident = ProtectedBddLocal::new(dd::bdd_one(&mut dtmc.mgr));
     for var_name in module.local_vars.iter().map(|v| &v.name) {
         let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
         let next_nodes = dtmc.next_name_to_indices[var_name].clone();
         for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
-            let eq = dtmc
-                .mgr
-                .bdd_equals(dtmc.mgr.bdd_var(curr), dtmc.mgr.bdd_var(next));
-            ident = dtmc.mgr.bdd_and(ident, eq);
+            let curr_var = ProtectedBddLocal::new(dd::bdd_var(&dtmc.mgr, curr));
+            let next_var = ProtectedBddLocal::new(dd::bdd_var(&dtmc.mgr, next));
+            let eq =
+                ProtectedBddLocal::new(dd::bdd_equals(&dtmc.mgr, curr_var.get(), next_var.get()));
+            ident.set(dd::bdd_and(&dtmc.mgr, ident.get(), eq.get()));
         }
     }
-    let ident = dtmc.mgr.bdd_to_add(ident);
+    let ident = dd::bdd_to_add(&mut dtmc.mgr, ident.get());
 
     let mut commands_by_action: HashMap<String, Vec<SymbolicCommand>> = HashMap::new();
     for cmd in &module.commands {
@@ -367,35 +393,50 @@ fn translate_modules(dtmc: &mut SymbolicDTMC) -> HashMap<String, SymbolicModule>
 
 /// Build and normalize the global DTMC transition ADD.
 fn translate_dtmc(dtmc: &mut SymbolicDTMC) {
-    let mut guard = LocalRootsGuard::new();
     let symbolic_modules = translate_modules(dtmc);
 
-    crate::new_protected!(guard, transitions, dtmc.mgr.add_zero());
+    let mut transitions = ProtectedAddLocal::new(dd::add_zero(&dtmc.mgr));
     for (act, act_modules) in &dtmc.info.modules_of_act {
-        let mut action_guard = LocalRootsGuard::new();
         trace!("Action '{}' is part of {:?}", act, act_modules);
-        crate::new_protected!(action_guard, act_trans, dtmc.mgr.add_const(1.0));
+        let mut act_trans = ProtectedAddLocal::new(dd::add_const(&dtmc.mgr, 1.0));
 
         for module_name in dtmc.ast.modules.iter().map(|m| &m.name) {
             if act_modules.contains(module_name) {
-                let mut module_guard = LocalRootsGuard::new();
-                crate::new_protected!(module_guard, act_mod_trans, dtmc.mgr.add_zero());
+                let mut act_mod_trans = ProtectedAddLocal::new(dd::add_zero(&dtmc.mgr));
                 for cmd in &symbolic_modules[module_name].commands_by_action[act] {
-                    act_mod_trans = dtmc.mgr.add_plus(act_mod_trans, cmd.transition.get());
+                    act_mod_trans.set(dd::add_plus(
+                        &mut dtmc.mgr,
+                        act_mod_trans.get(),
+                        cmd.transition.get(),
+                    ));
                 }
-                act_trans = dtmc.mgr.add_times(act_trans, act_mod_trans);
+                act_trans.set(dd::add_times(
+                    &mut dtmc.mgr,
+                    act_trans.get(),
+                    act_mod_trans.get(),
+                ));
             } else {
-                act_trans = dtmc
-                    .mgr
-                    .add_times(act_trans, symbolic_modules[module_name].ident.get());
+                act_trans.set(dd::add_times(
+                    &mut dtmc.mgr,
+                    act_trans.get(),
+                    symbolic_modules[module_name].ident.get(),
+                ));
             }
         }
 
-        transitions = dtmc.mgr.add_plus(transitions, act_trans);
+        transitions.set(dd::add_plus(
+            &mut dtmc.mgr,
+            transitions.get(),
+            act_trans.get(),
+        ));
     }
 
-    transitions = dtmc.mgr.unif(transitions, dtmc.next_var_cube.get());
-    dtmc.transitions.replace(transitions);
+    transitions.set(dd::unif(
+        &mut dtmc.mgr,
+        transitions.get(),
+        dtmc.next_var_cube.get(),
+    ));
+    dtmc.transitions.replace(transitions.get());
 }
 
 /// Top-level symbolic DTMC construction pipeline.
