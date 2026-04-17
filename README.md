@@ -44,7 +44,7 @@ nix build
 ./result/bin/prismulti [options]
 ```
 
-For development, you can use `nix develop` to get a shell with all the relevant tools installed.
+For development, we recommend using `nix develop` to get a shell with all the relevant tools installed.
 
 ### Using the Binary
 General form:
@@ -77,7 +77,55 @@ We provide both macro-benchmarking and micro-benchmarking infrastructure within 
 
 Micro-benchmarking is provided by the `criterion` crate and allows for fine-grained benchmarking of individual functions or operations. See `dtmc_benches.rs`. (However, this is not currently used for much)
 
-Macro-benchmarking is done via `hyperfine` in a Python script that runs the entire binary on a set of models and properties and measures end-to-end runtime. See `hyperfine_benches.py`. This is currently the main benchmarking tool we use to measure performance improvements.
+Macro-benchmarking is done via `hyperfine` in a Python script that runs the entire binary on a set of models and properties and measures end-to-end runtime. Benchmark definitions are centralized in `benches/benchmarks.py` so they can also be reused by other profiling scripts.
+
+### Hyperfine benchmarks
+Install `hyperfine` and run:
+
+```bash
+python -m benches.hyperfine_bench.py
+```
+
+Useful options:
+- `--max-level <N>` only runs benchmarks with level `<= N`.
+- `--skip-build` skips `cargo build --release`.
+- `--binary <path>` points to a custom `prismulti` binary.
+- `--export-json <path>` sets the base JSON output path (one file per benchmark).
+
+Example:
+
+```bash
+python -m benches.hyperfine_bench.py --max-level 3 --export-json target/hyperfine-checking.json
+```
+
+## Perf profiling
+For profiling data that you can open in Hotspot (and use for flamegraph-style call-stack analysis), use `profiling/perf_profile.py`.
+
+By default it runs a built-in list of benchmark names, and you can override that list by passing benchmark names as positional arguments.
+
+```bash
+python3 -m profiling.perf_profile.py
+python3 -m profiling.perf_profile.py leader6_6_check brp_n1024_max8_all_props
+```
+
+Useful options:
+- `--skip-build` skips `cargo build --release`.
+- `--binary <path>` points to a custom `prismulti` binary.
+- `--output-dir <path>` changes where profile outputs are written (default: `profiling/perf_output`).
+- `--record-args "..."` appends custom flags to `perf record`.
+- `--no-default-record-args` disables default callgraph sampling args (`--call-graph dwarf,16384 --freq 999`).
+
+Each run writes:
+- `profiling/perf_output/<benchmark>-<timestamp>.perf` (open this in Hotspot)
+- `profiling/perf_output/<benchmark>-<timestamp>.record.log` (command, return code, stdout/stderr)
+
+Open one result in Hotspot:
+
+```bash
+hotspot profiling/perf_output/leader6_6_check-<timestamp>.perf
+```
+
+Unfortunately, due to use of lace by Sylvan, we cannot really see where the epensive ADD operations are being called, but we can at least see which are the expensive ADD operations.
 
 ## Sylvan Tuning
  

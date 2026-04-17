@@ -4,6 +4,12 @@ docs/davesthesis.pdf
 *.dot
 *.svg
 
+# Python
+**/__pycache__/
+
+# Profiling Output
+profiling/perf_output/
+
 # Added by code-review-graph
 .code-review-graph/
 .opencode.json
