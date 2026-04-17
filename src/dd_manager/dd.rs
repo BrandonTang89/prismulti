@@ -22,40 +22,26 @@ use sylvan_sys::{
 };
 
 use crate::dd_manager::{AddNode, AddStats, BDDVAR, BddMap, BddNode, DDManager, EPS, VarSet};
+use crate::{protected_add, protected_bdd};
 
 #[inline]
 fn must_node(n: MTBDD, op: &str) -> MTBDD {
-    assert!(n != SYLVAN_INVALID, "Sylvan returned INVALID in {op}");
+    debug_assert!(n != SYLVAN_INVALID, "Sylvan returned INVALID in {op}");
     n
 }
 
 #[inline]
-fn is_complemented_raw(node: MTBDD) -> bool {
+fn is_complemented(node: MTBDD) -> bool {
     unsafe { Sylvan_mtbdd_hascomp(node) != 0 }
 }
 
 #[inline]
-fn regular_raw(node: MTBDD) -> MTBDD {
-    if is_complemented_raw(node) {
+fn regular_node(node: MTBDD) -> MTBDD {
+    if is_complemented(node) {
         unsafe { Sylvan_mtbdd_comp(node) }
     } else {
         node
     }
-}
-
-#[inline]
-fn regular_node(node: MTBDD) -> MTBDD {
-    regular_raw(node)
-}
-
-#[inline]
-fn one_bdd() -> BddNode {
-    BddNode(SYLVAN_TRUE)
-}
-
-#[inline]
-fn zero_bdd() -> BddNode {
-    BddNode(SYLVAN_FALSE)
 }
 
 #[inline]
@@ -116,6 +102,9 @@ pub fn var_set_from_indices(vars: &[BDDVAR]) -> VarSet {
 pub fn var_set_empty() -> VarSet {
     VarSet(must_node(unsafe { Sylvan_set_empty() }, "Sylvan_set_empty"))
 }
+pub fn bdd_map_empty() -> BddMap {
+    BddMap(must_node(unsafe { Sylvan_map_empty() }, "Sylvan_map_empty"))
+}
 
 pub fn build_swap_map(mgr: &DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
     crate::protected_map!(
@@ -127,7 +116,7 @@ pub fn build_swap_map(mgr: &DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
         assert!(xi < mgr.next_var_index);
         assert!(yi < mgr.next_var_index);
 
-        crate::protected_bdd!(
+        protected_bdd!(
             y_var,
             BddNode(must_node(unsafe { Sylvan_ithvar(yi) }, "Sylvan_ithvar(y)",))
         );
@@ -137,7 +126,7 @@ pub fn build_swap_map(mgr: &DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
         );
         map.set(BddMap(new_map_xy));
 
-        crate::protected_bdd!(
+        protected_bdd!(
             x_var,
             BddNode(must_node(unsafe { Sylvan_ithvar(xi) }, "Sylvan_ithvar(x)",))
         );
@@ -191,7 +180,7 @@ pub fn add_value(node: MTBDD) -> Option<f64> {
     }
 
     let v = leaf_to_f64(regular_node(node));
-    if is_complemented_raw(node) {
+    if is_complemented(node) {
         Some(1.0 - v)
     } else {
         Some(v)
@@ -223,7 +212,7 @@ pub fn add_eval_value(mgr: &DDManager, f: AddNode, inputs: &[i32]) -> f64 {
 
 pub fn extract_leftmost_path_from_bdd(mgr: &DDManager, root: BddNode) -> Option<Vec<i32>> {
     let mut inputs = vec![0_i32; mgr.var_count()];
-    let zero = zero_bdd().0;
+    let zero = bdd_zero().0;
     let mut node = root.0;
 
     loop {
@@ -245,12 +234,13 @@ pub fn extract_leftmost_path_from_bdd(mgr: &DDManager, root: BddNode) -> Option<
     }
 }
 
+#[inline]
 pub fn bdd_one() -> BddNode {
-    one_bdd()
+    BddNode(SYLVAN_TRUE)
 }
 
 pub fn bdd_zero() -> BddNode {
-    zero_bdd()
+    BddNode(SYLVAN_FALSE)
 }
 
 pub fn add_zero() -> AddNode {
@@ -314,20 +304,16 @@ pub fn bdd_and_then_existsabs(f: BddNode, g: BddNode, vars: VarSet) -> BddNode {
     ))
 }
 
-pub fn bdd_swap_variables(mgr: &mut DDManager, f: BddNode, x: &[BDDVAR], y: &[BDDVAR]) -> BddNode {
-    assert_eq!(x.len(), y.len());
-    crate::protected_map!(map, build_swap_map(mgr, x, y));
+pub fn bdd_swap_variables(f: BddNode, swap_map: BddMap) -> BddNode {
     BddNode(must_node(
-        unsafe { Sylvan_compose(f.0, map.get().0) },
+        unsafe { Sylvan_compose(f.0, swap_map.0) },
         "Sylvan_compose",
     ))
 }
 
-pub fn add_swap_vars(mgr: &mut DDManager, f: AddNode, x: &[BDDVAR], y: &[BDDVAR]) -> AddNode {
-    assert_eq!(x.len(), y.len());
-    crate::protected_map!(map, build_swap_map(mgr, x, y));
+pub fn add_swap_vars(f: AddNode, swap_map: BddMap) -> AddNode {
     AddNode(must_node(
-        unsafe { Sylvan_mtbdd_compose(f.0, map.get().0) },
+        unsafe { Sylvan_mtbdd_compose(f.0, swap_map.0) },
         "Sylvan_mtbdd_compose",
     ))
 }
@@ -346,10 +332,6 @@ pub fn add_matrix_multiply_with_var_set(a: AddNode, b: AddNode, vars: VarSet) ->
 
 pub fn get_var_set_for_indices(vars: &[BDDVAR]) -> VarSet {
     var_set_from_indices(vars)
-}
-
-pub fn get_swap_map_for_indices(mgr: &mut DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
-    build_swap_map(mgr, x, y)
 }
 
 pub fn bdd_compose_with_map(f: BddNode, map: BddMap) -> BddNode {
@@ -434,17 +416,9 @@ pub fn add_to_bdd(a: AddNode) -> BddNode {
     ))
 }
 
-pub fn add_to_bdd_pattern(a: AddNode) -> BddNode {
-    crate::protected_add!(zero_for_gt, add_const(0.0));
-    crate::protected_bdd!(gt_zero, add_greater_than(a, zero_for_gt.get()));
-    crate::protected_add!(zero_for_lt, add_const(0.0));
-    crate::protected_bdd!(lt_zero, add_less_than(a, zero_for_lt.get()));
-    bdd_or(gt_zero.get(), lt_zero.get())
-}
-
 pub fn bdd_to_add(b: BddNode) -> AddNode {
-    crate::protected_add!(one, add_const(1.0));
-    crate::protected_add!(zero, add_const(0.0));
+    protected_add!(one, add_const(1.0));
+    protected_add!(zero, add_const(0.0));
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_ite(b.0, one.get().0, zero.get().0) },
         "Sylvan_mtbdd_ite(bdd_to_add)",
@@ -452,35 +426,35 @@ pub fn bdd_to_add(b: BddNode) -> AddNode {
 }
 
 pub fn add_greater_than(a: AddNode, b: AddNode) -> BddNode {
-    crate::protected_add!(diff, add_minus(a, b));
+    protected_add!(diff, add_minus(a, b));
     add_to_bdd(diff.get())
 }
 
 pub fn add_less_than(a: AddNode, b: AddNode) -> BddNode {
-    crate::protected_add!(diff, add_minus(b, a));
+    protected_add!(diff, add_minus(b, a));
     add_to_bdd(diff.get())
 }
 
 pub fn add_greater_or_equal(a: AddNode, b: AddNode) -> BddNode {
-    crate::protected_bdd!(lt, add_less_than(a, b));
+    protected_bdd!(lt, add_less_than(a, b));
     bdd_not(lt.get())
 }
 
 pub fn add_less_or_equal(a: AddNode, b: AddNode) -> BddNode {
-    crate::protected_bdd!(gt, add_greater_than(a, b));
+    protected_bdd!(gt, add_greater_than(a, b));
     bdd_not(gt.get())
 }
 
 pub fn add_equals(a: AddNode, b: AddNode) -> BddNode {
-    crate::protected_bdd!(gt, add_greater_than(a, b));
-    crate::protected_bdd!(lt, add_less_than(a, b));
-    crate::protected_bdd!(neq, bdd_or(gt.get(), lt.get()));
+    protected_bdd!(gt, add_greater_than(a, b));
+    protected_bdd!(lt, add_less_than(a, b));
+    protected_bdd!(neq, bdd_or(gt.get(), lt.get()));
     bdd_not(neq.get())
 }
 
 pub fn add_nequals(a: AddNode, b: AddNode) -> BddNode {
-    crate::protected_bdd!(gt, add_greater_than(a, b));
-    crate::protected_bdd!(lt, add_less_than(a, b));
+    protected_bdd!(gt, add_greater_than(a, b));
+    protected_bdd!(lt, add_less_than(a, b));
     bdd_or(gt.get(), lt.get())
 }
 
@@ -623,26 +597,26 @@ pub fn dump_bdd_dot(root: BddNode, path: &str, var_names: &HashMap<BDD, String>)
 }
 
 pub fn get_encoding(mgr: &mut DDManager, indices: &[BDDVAR]) -> AddNode {
-    crate::protected_add!(result, add_const(0.0));
-    crate::protected_bdd!(bdd_one_node, bdd_one());
+    protected_add!(result, add_const(0.0));
+    protected_bdd!(bdd_one_node, bdd_one());
 
     for bm in 0..(1i32 << indices.len()) {
-        crate::protected_bdd!(term, bdd_one_node.get());
+        protected_bdd!(term, bdd_one_node.get());
         for (i, &var) in indices.iter().enumerate() {
-            crate::protected_bdd!(
+            protected_bdd!(
                 literal,
                 if (bm & (1 << i)) != 0 {
                     bdd_var(mgr, var)
                 } else {
-                    crate::protected_bdd!(var_node, bdd_var(mgr, var));
+                    protected_bdd!(var_node, bdd_var(mgr, var));
                     bdd_not(var_node.get())
                 }
             );
             term.set(bdd_and(term.get(), literal.get()));
         }
-        crate::protected_add!(term_as_add, bdd_to_add(term.get()));
-        crate::protected_add!(value, add_const(bm as f64));
-        crate::protected_add!(weighted_term, add_times(term_as_add.get(), value.get()));
+        protected_add!(term_as_add, bdd_to_add(term.get()));
+        protected_add!(value, add_const(bm as f64));
+        protected_add!(weighted_term, add_times(term_as_add.get(), value.get()));
         result.set(add_plus(result.get(), weighted_term.get()));
     }
 
@@ -650,9 +624,9 @@ pub fn get_encoding(mgr: &mut DDManager, indices: &[BDDVAR]) -> AddNode {
 }
 
 pub fn unif(m: AddNode, vars: VarSet) -> AddNode {
-    crate::protected_add!(denom, add_sum_abstract(m, vars));
-    crate::protected_bdd!(denom_bdd, add_to_bdd(denom.get()));
-    crate::protected_add!(one, add_const(1.0));
-    crate::protected_add!(denom_safe, add_ite(denom_bdd.get(), denom.get(), one.get()));
+    protected_add!(denom, add_sum_abstract(m, vars));
+    protected_bdd!(denom_bdd, add_to_bdd(denom.get()));
+    protected_add!(one, add_const(1.0));
+    protected_add!(denom_safe, add_ite(denom_bdd.get(), denom.get(), one.get()));
     add_divide(m, denom_safe.get())
 }

@@ -1,6 +1,8 @@
 use sylvan_sys::MTBDD;
 use sylvan_sys::mtbdd::{Sylvan_mtbdd_protect, Sylvan_mtbdd_unprotect};
 
+use crate::dd_manager::dd;
+
 #[derive(Debug)]
 pub struct ProtectedSlot {
     slot: Box<MTBDD>,
@@ -105,6 +107,12 @@ impl ProtectedVarSetSlot {
     }
 }
 
+impl Default for ProtectedVarSetSlot {
+    fn default() -> Self {
+        Self::new(dd::var_set_empty())
+    }
+}
+
 #[derive(Debug)]
 pub struct ProtectedAddSlot {
     slot: ProtectedSlot,
@@ -130,5 +138,45 @@ impl ProtectedAddSlot {
     #[inline]
     pub fn replace(&mut self, value: super::AddNode) -> super::AddNode {
         super::AddNode(self.slot.replace(value.0))
+    }
+}
+
+impl Default for ProtectedAddSlot {
+    fn default() -> Self {
+        Self::new(dd::add_zero())
+    }
+}
+
+#[derive(Debug)]
+pub struct ProtectedMapSlot {
+    slot: ProtectedSlot,
+}
+
+impl ProtectedMapSlot {
+    pub fn new(initial: super::BddMap) -> Self {
+        Self {
+            slot: ProtectedSlot::new(initial.0),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self) -> super::BddMap {
+        super::BddMap(self.slot.get())
+    }
+
+    #[inline]
+    pub fn set(&mut self, value: super::BddMap) {
+        self.slot.set(value.0);
+    }
+
+    #[inline]
+    pub fn replace(&mut self, value: super::BddMap) -> super::BddMap {
+        super::BddMap(self.slot.replace(value.0))
+    }
+}
+
+impl Default for ProtectedMapSlot {
+    fn default() -> Self {
+        Self::new(dd::bdd_map_empty())
     }
 }

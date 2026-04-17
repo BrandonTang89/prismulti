@@ -7,7 +7,9 @@ use crate::analyze::DTMCModelInfo;
 use crate::ast::*;
 use crate::dd_manager::AddNode;
 use crate::dd_manager::dd;
-use crate::dd_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot};
+use crate::dd_manager::protected_slot::ProtectedAddSlot;
+use crate::protected_add;
+use crate::protected_bdd;
 use crate::reachability::compute_reachable_and_filter;
 use crate::symbolic_dtmc::SymbolicDTMC;
 
@@ -62,11 +64,6 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
 
                 curr_indices.push(curr);
                 next_indices.push(next);
-
-                let curr_node = dd::bdd_var(mgr, curr);
-                dtmc.var_node_roots.push(ProtectedBddSlot::new(curr_node));
-                let next_node = dd::bdd_var(mgr, next);
-                dtmc.var_node_roots.push(ProtectedBddSlot::new(next_node));
             }
 
             for (i, &curr) in curr_indices.iter().enumerate() {
@@ -108,13 +105,20 @@ fn allocate_dd_vars(dtmc: &mut SymbolicDTMC) {
             }
         }
     }
+
+    let curr_var_set = dd::var_set_from_indices(&curr_var_indices);
+    dtmc.curr_var_set.set(curr_var_set);
+    let next_var_set = dd::var_set_from_indices(&next_var_indices);
+    dtmc.next_var_set.set(next_var_set);
+
+    dtmc.curr_to_next_map.set(dd::build_swap_map(
+        &dtmc.mgr,
+        &curr_var_indices,
+        &next_var_indices,
+    ));
+
     dtmc.curr_var_indices = curr_var_indices;
     dtmc.next_var_indices = next_var_indices;
-
-    let curr_var_set = dd::var_set_from_indices(&dtmc.curr_var_indices);
-    dtmc.curr_var_set.set(curr_var_set);
-    let next_var_set = dd::var_set_from_indices(&dtmc.next_var_indices);
-    dtmc.next_var_cube.set(next_var_set);
 }
 
 /// Return ADD encoding of variable value (`curr` or `next`) with lower-bound offset.
@@ -126,13 +130,13 @@ fn get_variable_encoding(dtmc: &mut SymbolicDTMC, var_name: &str, primed: bool) 
         .unwrap_or_else(|| panic!("Variable '{}' not found in model info", var_name));
 
     let mgr = &mut dtmc.mgr;
-    crate::protected_add!(offset_add, dd::add_const(*lo as f64));
+    protected_add!(offset_add, dd::add_const(*lo as f64));
     let variable_nodes = if primed {
         &dtmc.next_name_to_indices[var_name]
     } else {
         &dtmc.curr_name_to_indices[var_name]
     };
-    crate::protected_add!(encoding, dd::get_encoding(mgr, variable_nodes));
+    protected_add!(encoding, dd::get_encoding(mgr, variable_nodes));
     dd::add_plus(encoding.get(), offset_add.get())
 }
 
@@ -154,55 +158,55 @@ pub fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
             )
         }
         Expr::UnaryOp { op, operand } => {
-            crate::protected_add!(value, translate_expr(operand, dtmc));
+            protected_add!(value, translate_expr(operand, dtmc));
             match op {
                 UnOp::Not => {
-                    crate::protected_add!(one, dd::add_const(1.0));
+                    protected_add!(one, dd::add_const(1.0));
                     dd::add_minus(one.get(), value.get())
                 }
                 UnOp::Neg => {
-                    crate::protected_add!(zero, dd::add_const(0.0));
+                    protected_add!(zero, dd::add_const(0.0));
                     dd::add_minus(zero.get(), value.get())
                 }
             }
         }
         Expr::BinOp { lhs, op, rhs } => {
-            crate::protected_add!(left, translate_expr(lhs, dtmc));
-            crate::protected_add!(right, translate_expr(rhs, dtmc));
+            protected_add!(left, translate_expr(lhs, dtmc));
+            protected_add!(right, translate_expr(rhs, dtmc));
             match op {
                 BinOp::Plus => dd::add_plus(left.get(), right.get()),
                 BinOp::Minus => dd::add_minus(left.get(), right.get()),
                 BinOp::Mul => dd::add_times(left.get(), right.get()),
                 BinOp::Div => dd::add_divide(left.get(), right.get()),
                 BinOp::Eq => {
-                    crate::protected_bdd!(bdd, dd::add_equals(left.get(), right.get()));
+                    protected_bdd!(bdd, dd::add_equals(left.get(), right.get()));
                     dd::bdd_to_add(bdd.get())
                 }
                 BinOp::Neq => {
-                    crate::protected_bdd!(bdd, dd::add_nequals(left.get(), right.get()));
+                    protected_bdd!(bdd, dd::add_nequals(left.get(), right.get()));
                     dd::bdd_to_add(bdd.get())
                 }
                 BinOp::Lt => {
-                    crate::protected_bdd!(bdd, dd::add_less_than(left.get(), right.get()));
+                    protected_bdd!(bdd, dd::add_less_than(left.get(), right.get()));
                     dd::bdd_to_add(bdd.get())
                 }
                 BinOp::Leq => {
-                    crate::protected_bdd!(bdd, dd::add_less_or_equal(left.get(), right.get()));
+                    protected_bdd!(bdd, dd::add_less_or_equal(left.get(), right.get()));
                     dd::bdd_to_add(bdd.get())
                 }
                 BinOp::Gt => {
-                    crate::protected_bdd!(bdd, dd::add_greater_than(left.get(), right.get()));
+                    protected_bdd!(bdd, dd::add_greater_than(left.get(), right.get()));
                     dd::bdd_to_add(bdd.get())
                 }
                 BinOp::Geq => {
-                    crate::protected_bdd!(bdd, dd::add_greater_or_equal(left.get(), right.get()));
+                    protected_bdd!(bdd, dd::add_greater_or_equal(left.get(), right.get()));
                     dd::bdd_to_add(bdd.get())
                 }
                 BinOp::And => dd::add_times(left.get(), right.get()),
                 BinOp::Or => {
-                    crate::protected_bdd!(add01_left, dd::add_to_bdd(left.get()));
-                    crate::protected_bdd!(add01_right, dd::add_to_bdd(right.get()));
-                    crate::protected_bdd!(bdd_or, dd::bdd_or(add01_left.get(), add01_right.get()));
+                    protected_bdd!(add01_left, dd::add_to_bdd(left.get()));
+                    protected_bdd!(add01_right, dd::add_to_bdd(right.get()));
+                    protected_bdd!(bdd_or, dd::bdd_or(add01_left.get(), add01_right.get()));
                     dd::bdd_to_add(bdd_or.get())
                 }
             }
@@ -212,10 +216,10 @@ pub fn translate_expr(expr: &Expr, dtmc: &mut SymbolicDTMC) -> AddNode {
             then_branch,
             else_branch,
         } => {
-            crate::protected_add!(cond_expr, translate_expr(cond, dtmc));
-            crate::protected_bdd!(cond_add, dd::add_to_bdd(cond_expr.get()));
-            crate::protected_add!(then_add, translate_expr(then_branch, dtmc));
-            crate::protected_add!(else_add, translate_expr(else_branch, dtmc));
+            protected_add!(cond_expr, translate_expr(cond, dtmc));
+            protected_bdd!(cond_add, dd::add_to_bdd(cond_expr.get()));
+            protected_add!(then_add, translate_expr(then_branch, dtmc));
+            protected_add!(else_add, translate_expr(else_branch, dtmc));
             dd::add_ite(cond_add.get(), then_add.get(), else_add.get())
         }
     }
@@ -243,7 +247,7 @@ fn translate_update(
     module_local_vars: &[String],
     dtmc: &mut SymbolicDTMC,
 ) -> AddNode {
-    crate::protected_add!(prob, translate_expr(&update.prob, dtmc));
+    protected_add!(prob, translate_expr(&update.prob, dtmc));
 
     let assigned_vars: HashSet<String> = update
         .assignments
@@ -251,9 +255,9 @@ fn translate_update(
         .filter_map(|assignment| get_assign_target(assignment).map(|name| name.to_string()))
         .collect();
 
-    crate::protected_add!(assign, dd::add_const(1.0));
+    protected_add!(assign, dd::add_const(1.0));
     for assignment in &update.assignments {
-        crate::protected_add!(symbolic_update, translate_expr(assignment, dtmc));
+        protected_add!(symbolic_update, translate_expr(assignment, dtmc));
         assign.set(dd::add_times(assign.get(), symbolic_update.get()));
     }
 
@@ -264,10 +268,10 @@ fn translate_update(
         let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
         let next_nodes = dtmc.next_name_to_indices[var_name].clone();
         for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
-            crate::protected_bdd!(curr_var, dd::bdd_var(&dtmc.mgr, curr));
-            crate::protected_bdd!(next_var, dd::bdd_var(&dtmc.mgr, next));
-            crate::protected_bdd!(eq, dd::bdd_equals(curr_var.get(), next_var.get()));
-            crate::protected_add!(eq_add, dd::bdd_to_add(eq.get()));
+            protected_bdd!(curr_var, dd::bdd_var(&dtmc.mgr, curr));
+            protected_bdd!(next_var, dd::bdd_var(&dtmc.mgr, next));
+            protected_bdd!(eq, dd::bdd_equals(curr_var.get(), next_var.get()));
+            protected_add!(eq_add, dd::bdd_to_add(eq.get()));
             assign.set(dd::add_times(assign.get(), eq_add.get()));
         }
     }
@@ -281,11 +285,11 @@ fn translate_command(
     module_local_vars: &[String],
     dtmc: &mut SymbolicDTMC,
 ) -> SymbolicCommand {
-    crate::protected_add!(cmd_guard, translate_expr(&cmd.guard, dtmc));
+    protected_add!(cmd_guard, translate_expr(&cmd.guard, dtmc));
 
-    crate::protected_add!(updates_sum, dd::add_zero());
+    protected_add!(updates_sum, dd::add_zero());
     for update in &cmd.updates {
-        crate::protected_add!(
+        protected_add!(
             symbolic_update,
             translate_update(update, module_local_vars, dtmc)
         );
@@ -305,14 +309,14 @@ fn translate_module(module: &Module, dtmc: &mut SymbolicDTMC) -> SymbolicModule 
         .map(|v| v.name.clone())
         .collect::<Vec<_>>();
 
-    crate::protected_bdd!(ident, dd::bdd_one());
+    protected_bdd!(ident, dd::bdd_one());
     for var_name in module.local_vars.iter().map(|v| &v.name) {
         let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
         let next_nodes = dtmc.next_name_to_indices[var_name].clone();
         for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
-            crate::protected_bdd!(curr_var, dd::bdd_var(&dtmc.mgr, curr));
-            crate::protected_bdd!(next_var, dd::bdd_var(&dtmc.mgr, next));
-            crate::protected_bdd!(eq, dd::bdd_equals(curr_var.get(), next_var.get()));
+            protected_bdd!(curr_var, dd::bdd_var(&dtmc.mgr, curr));
+            protected_bdd!(next_var, dd::bdd_var(&dtmc.mgr, next));
+            protected_bdd!(eq, dd::bdd_equals(curr_var.get(), next_var.get()));
             ident.set(dd::bdd_and(ident.get(), eq.get()));
         }
     }
@@ -350,14 +354,14 @@ fn translate_modules(dtmc: &mut SymbolicDTMC) -> HashMap<String, SymbolicModule>
 fn translate_dtmc(dtmc: &mut SymbolicDTMC) {
     let symbolic_modules = translate_modules(dtmc);
 
-    crate::protected_add!(transitions, dd::add_zero());
+    protected_add!(transitions, dd::add_zero());
     for (act, act_modules) in &dtmc.info.modules_of_act {
         trace!("Action '{}' is part of {:?}", act, act_modules);
-        crate::protected_add!(act_trans, dd::add_const(1.0));
+        protected_add!(act_trans, dd::add_const(1.0));
 
         for module_name in dtmc.ast.modules.iter().map(|m| &m.name) {
             if act_modules.contains(module_name) {
-                crate::protected_add!(act_mod_trans, dd::add_zero());
+                protected_add!(act_mod_trans, dd::add_zero());
                 for cmd in &symbolic_modules[module_name].commands_by_action[act] {
                     act_mod_trans.set(dd::add_plus(act_mod_trans.get(), cmd.transition.get()));
                 }
@@ -373,7 +377,7 @@ fn translate_dtmc(dtmc: &mut SymbolicDTMC) {
         transitions.set(dd::add_plus(transitions.get(), act_trans.get()));
     }
 
-    transitions.set(dd::unif(transitions.get(), dtmc.next_var_cube.get()));
+    transitions.set(dd::unif(transitions.get(), dtmc.next_var_set.get()));
     dtmc.transitions.replace(transitions.get());
 }
 

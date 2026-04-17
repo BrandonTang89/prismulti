@@ -168,10 +168,10 @@ impl Drop for DDManager {
 #[cfg(test)]
 mod tests {
     use super::{BddNode, DDManager};
-    use crate::dd_manager::dd;
+    use crate::{dd_manager::dd, protected_add, protected_bdd};
 
     fn assert_witness_satisfies(root: BddNode, mgr: &mut DDManager, witness: &[i32]) {
-        crate::protected_add!(root_add, dd::bdd_to_add(root));
+        protected_add!(root_add, dd::bdd_to_add(root));
         let value = dd::add_eval_value(mgr, root_add.get(), witness);
         assert_eq!(value, 1.0, "extracted witness must satisfy root BDD");
     }
@@ -181,7 +181,7 @@ mod tests {
         let mut mgr = DDManager::new();
 
         let x0_idx = mgr.new_var();
-        crate::protected_bdd!(x0, dd::bdd_var(&mgr, x0_idx));
+        protected_bdd!(x0, dd::bdd_var(&mgr, x0_idx));
         assert!(!x0.get().is_complemented());
 
         let witness =
@@ -196,8 +196,8 @@ mod tests {
         let mut mgr = DDManager::new();
 
         let x0_idx = mgr.new_var();
-        crate::protected_bdd!(x0, dd::bdd_var(&mgr, x0_idx));
-        crate::protected_bdd!(not_x0, dd::bdd_not(x0.get()));
+        protected_bdd!(x0, dd::bdd_var(&mgr, x0_idx));
+        protected_bdd!(not_x0, dd::bdd_not(x0.get()));
         assert!(not_x0.get().is_complemented());
 
         let witness = dd::extract_leftmost_path_from_bdd(&mgr, not_x0.get())
@@ -212,16 +212,16 @@ mod tests {
         let mut mgr = DDManager::new();
         let x0 = mgr.new_var();
 
-        crate::protected_bdd!(cond, dd::bdd_var(&mgr, x0));
-        crate::protected_add!(then_branch, dd::add_const(0.2));
-        crate::protected_add!(else_branch, dd::add_const(0.7));
-        crate::protected_add!(
+        protected_bdd!(cond, dd::bdd_var(&mgr, x0));
+        protected_add!(then_branch, dd::add_const(0.2));
+        protected_add!(else_branch, dd::add_const(0.7));
+        protected_add!(
             f,
             dd::add_ite(cond.get(), then_branch.get(), else_branch.get())
         );
 
         crate::protected_var_set!(vars, dd::var_set_from_indices(&[x0]));
-        crate::protected_add!(max_abs, dd::add_max_abstract(f.get(), vars.get()));
+        protected_add!(max_abs, dd::add_max_abstract(f.get(), vars.get()));
 
         let value = dd::add_value(max_abs.get().0)
             .expect("max abstraction over x0 should yield a constant");
@@ -236,16 +236,16 @@ mod tests {
         let mut mgr = DDManager::new();
         let x0 = mgr.new_var();
 
-        crate::protected_bdd!(cond, dd::bdd_var(&mgr, x0));
-        crate::protected_add!(then_branch, dd::add_const(0.2));
-        crate::protected_add!(else_branch, dd::add_const(0.7));
-        crate::protected_add!(
+        protected_bdd!(cond, dd::bdd_var(&mgr, x0));
+        protected_add!(then_branch, dd::add_const(0.2));
+        protected_add!(else_branch, dd::add_const(0.7));
+        protected_add!(
             f,
             dd::add_ite(cond.get(), then_branch.get(), else_branch.get())
         );
 
         crate::protected_var_set!(vars, dd::var_set_from_indices(&[x0]));
-        crate::protected_add!(min_abs, dd::add_min_abstract(f.get(), vars.get()));
+        protected_add!(min_abs, dd::add_min_abstract(f.get(), vars.get()));
 
         let value = dd::add_value(min_abs.get().0)
             .expect("min abstraction over x0 should yield a constant");
