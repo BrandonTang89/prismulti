@@ -218,7 +218,7 @@ macro_rules! protected_bdd {
     ($name:ident) => {
         #[allow(unused_mut)]
         let mut $name = $crate::dd_manager::protected_local::ProtectedBddLocal::new(
-            $crate::dd_manager::dd::bdd_false(),
+            $crate::dd_manager::dd::bdd_zero(),
         );
         $name.protect();
     };

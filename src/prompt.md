@@ -1,24 +1,11 @@
-Currently ProtectedLocal::uses lazy protect for the following reason:
+Let's slightly modify the hyperfine_bench.py file
 
-- With eager protect in ProtectedLocal::new, we protect the address inside the constructor.
-- Returning Self can move that value, so Sylvan is tracking an old pointer.
-- Later nested protect/unprotect stack behavior hits invalid ordering/address assumptions and triggers protect_down assertions (this is the exact failure we saw).
-- Lazy protect ensures first protect happens only after the value is in its final local slot (get/set/...), so the protected pointer is stable.
+BENCHMARKS and the dataclass should be moved out of the hyperfine_bench.py file and into a benchmarks.py file. This will allow us to import the benchmarks into other scripts without running the hyperfine benchmark code. Modify the hyperfine_bench.py file to import the benchmarks from benchmarks.py and run all benchmarks as before.
 
-But I don't like having the extra bool within the struct for performance reasons. Intead, we should make a ProtectedLocal that doesn't do this.
-What we want is a ProtectedLocal that uses a macro to first construt the ProtectedLocal without protection, then immediately protects it
+Furthermore, BENCHMARKS should be a dictionary[str, Benchmark] instead of a tuple list. This will allow us to easily look up benchmarks by name, which will be useful for the new script that will run specific benchmarks. We can then remove the name from Benchmark.
 
-E.g. 
-```rust
-protected_bdd!(local, bdd.zero());
-```
+We replace level, run with a BenchmarkConfig dataclass that contains the level and run fields. This will allow us to easily add more configuration options.
 
-where protected_bdd! would expand to something like:
-```rust
-let mut local = ProtectedBddLocal::new(bdd.zero());
-local.protect();
-```
+We will then add a profiling/perf_profile.py file that will import the benchmarks and run specific benchmarks and measure them with perf based on command line arguments. We want to have an array with the names of the benchmarks to run. We can override this array with command line arguments. If no command line arguments are given, we run the names in the array, otherwise then we will run the benchmarks specified in the command line arguments. Ensure that we write the output to a profiling/perf_output directory with a filename that includes the benchmark name and the current timestamp. We can use the subprocess module to run the perf command and capture the output.
 
-Now, the second thing is that almost all the functions in dd.rs take a DDManager as an input, but doesn't need to be. Remove that parameter from all the functions that don't need a DDManager. This will make the code cleaner and more efficient, as we won't have to pass around the DDManager unnecessarily. Adjust all the call sites accordingly.
-
-Ensure all tests continue to pass. Good luck!
+Finally, we will modify the README.md file to include instructions on how to run the benchmarks and the profiling script. We will also include a section on how to interpret the results of the perf profiling.

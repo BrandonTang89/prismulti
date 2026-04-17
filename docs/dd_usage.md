@@ -119,3 +119,4 @@ caller must root the returned value if needed beyond immediate use.
 - Use `protected_slot` for long-lived owned roots in structs.
 - Never assume a plain returned node stays alive unless you root it on the
   caller side.
+- Never assume that temporaries between DD calls stay alive unless you protect them by storing the intermediate result in a `protected_local` or `protected_slot`.

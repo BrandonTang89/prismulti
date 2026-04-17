@@ -1,7 +1,8 @@
 #![doc = include_str!("../README.md")]
 
-//!# Details
+//!# Model Checking Details
 #![doc = include_str!("../docs/dtmc_details.md")]
+#![doc = include_str!("../docs/dd_usage.md")]
 
 //!# References
 //! For more details:
