@@ -159,6 +159,7 @@ impl SymbolicDTMC {
         ident.get()
     }
 
+    /// Returns a cached BDD encoding `(curr == next)` over all state bits.
     pub fn get_curr_next_identity_bdd(&mut self) -> BddNode {
         if let Some(identity) = self.curr_next_identity.get() {
             return identity.get();
@@ -210,6 +211,7 @@ impl SymbolicDTMC {
         init.get()
     }
 
+    /// Returns the cached initial-state BDD, building it on first access.
     pub fn get_init_bdd(&mut self) -> BddNode {
         if let Some(init) = self.init.get() {
             return init.get();
@@ -286,6 +288,7 @@ impl SymbolicDTMC {
         info!("Added self-loops to {} dead-end states", dead_end_count);
     }
 
+    /// Returns the cached reachable-state BDD.
     pub fn get_reachable_bdd(&mut self) -> BddNode {
         self.reachable
             .get()
@@ -293,6 +296,7 @@ impl SymbolicDTMC {
             .expect("Reachable states should be computed by now")
     }
 
+    /// Returns the cached filtered 0-1 transition relation.
     pub fn get_transitions_01(&mut self) -> BddNode {
         self.transitions_01
             .get()

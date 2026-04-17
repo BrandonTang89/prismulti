@@ -90,6 +90,7 @@ fn intern_id(ids: &mut HashMap<MTBDD, usize>, next_id: &mut usize, n: MTBDD) -> 
     })
 }
 
+/// Creates a Sylvan variable set from the given DD variable indices.
 pub fn var_set_from_indices(vars: &[BDDVAR]) -> VarSet {
     let mut arr = vars.to_vec();
     let set = must_node(
@@ -99,13 +100,19 @@ pub fn var_set_from_indices(vars: &[BDDVAR]) -> VarSet {
     VarSet(set)
 }
 
+/// Returns the empty variable set.
 pub fn var_set_empty() -> VarSet {
     VarSet(must_node(unsafe { Sylvan_set_empty() }, "Sylvan_set_empty"))
 }
+
+/// Returns the empty variable substitution map.
 pub fn bdd_map_empty() -> BddMap {
     BddMap(must_node(unsafe { Sylvan_map_empty() }, "Sylvan_map_empty"))
 }
 
+/// Builds a bidirectional swap map between aligned `x` and `y` indices.
+///
+/// Each `(x[i], y[i])` pair is inserted both as `x -> y` and `y -> x`.
 pub fn build_swap_map(mgr: &DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
     crate::protected_map!(
         map,
@@ -140,6 +147,9 @@ pub fn build_swap_map(mgr: &DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
     map.get()
 }
 
+/// Reads the variable index for a non-terminal DD node.
+///
+/// Returns `BDDVAR::MAX` for terminal nodes.
 pub fn read_var_index(node: MTBDD) -> BDDVAR {
     if is_constant(node) {
         BDDVAR::MAX
@@ -148,6 +158,9 @@ pub fn read_var_index(node: MTBDD) -> BDDVAR {
     }
 }
 
+/// Returns the high/then successor for a non-terminal DD node.
+///
+/// For terminals this returns the terminal itself (regularized).
 pub fn read_then(node: MTBDD) -> MTBDD {
     if is_constant(node) {
         regular_node(node)
@@ -156,6 +169,9 @@ pub fn read_then(node: MTBDD) -> MTBDD {
     }
 }
 
+/// Returns the low/else successor for a non-terminal DD node.
+///
+/// For terminals this returns the terminal itself (regularized).
 pub fn read_else(node: MTBDD) -> MTBDD {
     if is_constant(node) {
         regular_node(node)
@@ -164,10 +180,14 @@ pub fn read_else(node: MTBDD) -> MTBDD {
     }
 }
 
+/// Returns whether the node is a terminal (leaf) node.
 pub fn is_constant(node: MTBDD) -> bool {
     unsafe { Sylvan_mtbdd_isleaf(regular_node(node)) != 0 }
 }
 
+/// Returns the scalar value for a terminal ADD/BDD node.
+///
+/// `None` is returned for non-terminal nodes.
 pub fn add_value(node: MTBDD) -> Option<f64> {
     if !is_constant(node) {
         return None;
@@ -187,6 +207,9 @@ pub fn add_value(node: MTBDD) -> Option<f64> {
     }
 }
 
+/// Evaluates an ADD by following branches from a full Boolean assignment.
+///
+/// `inputs[var] == 0` takes the else edge, otherwise the then edge.
 pub fn add_eval_value(mgr: &DDManager, f: AddNode, inputs: &[i32]) -> f64 {
     let required = mgr.var_count();
     assert!(
@@ -210,6 +233,9 @@ pub fn add_eval_value(mgr: &DDManager, f: AddNode, inputs: &[i32]) -> f64 {
     }
 }
 
+/// Extracts one satisfying assignment by preferring else-edges first.
+///
+/// Returns `None` when the root is unsatisfiable (`false`).
 pub fn extract_leftmost_path_from_bdd(mgr: &DDManager, root: BddNode) -> Option<Vec<i32>> {
     let mut inputs = vec![0_i32; mgr.var_count()];
     let zero = bdd_zero().0;
@@ -234,19 +260,23 @@ pub fn extract_leftmost_path_from_bdd(mgr: &DDManager, root: BddNode) -> Option<
     }
 }
 
+/// Returns the Boolean constant `true`.
 #[inline]
 pub fn bdd_one() -> BddNode {
     BddNode(SYLVAN_TRUE)
 }
 
+/// Returns the Boolean constant `false`.
 pub fn bdd_zero() -> BddNode {
     BddNode(SYLVAN_FALSE)
 }
 
+/// Returns the numeric constant `0.0` as an ADD leaf.
 pub fn add_zero() -> AddNode {
     add_const(0.0)
 }
 
+/// Returns a numeric constant ADD leaf.
 pub fn add_const(value: f64) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_double(value) },
@@ -254,6 +284,7 @@ pub fn add_const(value: f64) -> AddNode {
     ))
 }
 
+/// Returns the BDD variable node for `var_index`.
 pub fn bdd_var(mgr: &DDManager, var_index: BDDVAR) -> BddNode {
     assert!(var_index < mgr.next_var_index);
     BddNode(must_node(
@@ -262,6 +293,7 @@ pub fn bdd_var(mgr: &DDManager, var_index: BDDVAR) -> BddNode {
     ))
 }
 
+/// Returns the ADD variable node for `var_index`.
 pub fn add_var(mgr: &DDManager, var_index: BDDVAR) -> AddNode {
     assert!(var_index < mgr.next_var_index);
     AddNode(must_node(
@@ -270,26 +302,32 @@ pub fn add_var(mgr: &DDManager, var_index: BDDVAR) -> AddNode {
     ))
 }
 
+/// Computes Boolean negation.
 pub fn bdd_not(a: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_not(a.0) }, "Sylvan_not"))
 }
 
+/// Computes Boolean equivalence (`a == b`).
 pub fn bdd_equals(a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_equiv(a.0, b.0) }, "Sylvan_equiv"))
 }
 
+/// Computes Boolean inequality (`a XOR b`).
 pub fn bdd_nequals(a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_xor(a.0, b.0) }, "Sylvan_xor"))
 }
 
+/// Computes conjunction (`a AND b`).
 pub fn bdd_and(a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_and(a.0, b.0) }, "Sylvan_and"))
 }
 
+/// Computes disjunction (`a OR b`).
 pub fn bdd_or(a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_or(a.0, b.0) }, "Sylvan_or"))
 }
 
+/// Existentially abstracts all variables in `vars` from `a`.
 pub fn bdd_exists_abstract(a: BddNode, vars: VarSet) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_exists(a.0, vars.0) },
@@ -297,6 +335,7 @@ pub fn bdd_exists_abstract(a: BddNode, vars: VarSet) -> BddNode {
     ))
 }
 
+/// Computes `(f AND g)` and then existentially abstracts `vars`.
 pub fn bdd_and_then_existsabs(f: BddNode, g: BddNode, vars: VarSet) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_and_exists(f.0, g.0, vars.0) },
@@ -304,6 +343,7 @@ pub fn bdd_and_then_existsabs(f: BddNode, g: BddNode, vars: VarSet) -> BddNode {
     ))
 }
 
+/// Renames variables in a BDD according to `swap_map`.
 pub fn bdd_swap_variables(f: BddNode, swap_map: BddMap) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_compose(f.0, swap_map.0) },
@@ -311,6 +351,7 @@ pub fn bdd_swap_variables(f: BddNode, swap_map: BddMap) -> BddNode {
     ))
 }
 
+/// Renames variables in an ADD according to `swap_map`.
 pub fn add_swap_vars(f: AddNode, swap_map: BddMap) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_compose(f.0, swap_map.0) },
@@ -318,6 +359,9 @@ pub fn add_swap_vars(f: AddNode, swap_map: BddMap) -> AddNode {
     ))
 }
 
+/// Matrix-style multiply with summation over `vars`.
+///
+/// This is the ADD primitive `and_abstract_plus` used for symbolic linear algebra.
 pub fn add_matrix_multiply(a: AddNode, b: AddNode, vars: VarSet) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_and_abstract_plus(a.0, b.0, vars.0) },
@@ -325,6 +369,7 @@ pub fn add_matrix_multiply(a: AddNode, b: AddNode, vars: VarSet) -> AddNode {
     ))
 }
 
+/// Composes a BDD with a variable substitution map.
 pub fn bdd_compose_with_map(f: BddNode, map: BddMap) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_compose(f.0, map.0) },
@@ -332,6 +377,7 @@ pub fn bdd_compose_with_map(f: BddNode, map: BddMap) -> BddNode {
     ))
 }
 
+/// Composes an ADD with a variable substitution map.
 pub fn add_compose_with_map(f: AddNode, map: BddMap) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_compose(f.0, map.0) },
@@ -339,6 +385,7 @@ pub fn add_compose_with_map(f: AddNode, map: BddMap) -> AddNode {
     ))
 }
 
+/// Pointwise addition of two ADDs.
 pub fn add_plus(a: AddNode, b: AddNode) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_plus(a.0, b.0) },
@@ -346,6 +393,7 @@ pub fn add_plus(a: AddNode, b: AddNode) -> AddNode {
     ))
 }
 
+/// Pointwise subtraction of two ADDs.
 pub fn add_minus(a: AddNode, b: AddNode) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_minus(a.0, b.0) },
@@ -353,6 +401,7 @@ pub fn add_minus(a: AddNode, b: AddNode) -> AddNode {
     ))
 }
 
+/// Pointwise multiplication of two ADDs.
 pub fn add_times(a: AddNode, b: AddNode) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_times(a.0, b.0) },
@@ -360,6 +409,9 @@ pub fn add_times(a: AddNode, b: AddNode) -> AddNode {
     ))
 }
 
+/// Pointwise division of two ADDs.
+///
+/// Division is implemented via a custom Sylvan `apply` callback.
 pub fn add_divide(a: AddNode, b: AddNode) -> AddNode {
     let op: MTBDD_APPLY_OP = mtbdd_divide_op;
     AddNode(must_node(
@@ -368,6 +420,7 @@ pub fn add_divide(a: AddNode, b: AddNode) -> AddNode {
     ))
 }
 
+/// ADD if-then-else with a BDD condition.
 pub fn add_ite(cond: BddNode, then_branch: AddNode, else_branch: AddNode) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_ite(cond.0, then_branch.0, else_branch.0) },
@@ -375,6 +428,7 @@ pub fn add_ite(cond: BddNode, then_branch: AddNode, else_branch: AddNode) -> Add
     ))
 }
 
+/// Sum-abstracts `vars` from `f`.
 pub fn add_sum_abstract(f: AddNode, vars: VarSet) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_abstract_plus(f.0, vars.0) },
@@ -382,10 +436,14 @@ pub fn add_sum_abstract(f: AddNode, vars: VarSet) -> AddNode {
     ))
 }
 
+/// OR-style abstraction alias for 0-1 ADDs.
+///
+/// Implemented as max-abstraction.
 pub fn add_or_abstract(f: AddNode, vars: VarSet) -> AddNode {
     add_max_abstract(f, vars)
 }
 
+/// Max-abstracts `vars` from `f`.
 pub fn add_max_abstract(f: AddNode, vars: VarSet) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_abstract_max(f.0, vars.0) },
@@ -393,6 +451,7 @@ pub fn add_max_abstract(f: AddNode, vars: VarSet) -> AddNode {
     ))
 }
 
+/// Min-abstracts `vars` from `f`.
 pub fn add_min_abstract(f: AddNode, vars: VarSet) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_abstract_min(f.0, vars.0) },
@@ -400,6 +459,7 @@ pub fn add_min_abstract(f: AddNode, vars: VarSet) -> AddNode {
     ))
 }
 
+/// Converts an ADD into a 0-1 BDD using strict threshold `EPS`.
 pub fn add_to_bdd(a: AddNode) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_mtbdd_strict_threshold_double(a.0, EPS) },
@@ -407,6 +467,7 @@ pub fn add_to_bdd(a: AddNode) -> BddNode {
     ))
 }
 
+/// Converts a BDD to a 0-1 ADD (`true -> 1`, `false -> 0`).
 pub fn bdd_to_add(b: BddNode) -> AddNode {
     protected_add!(one, add_const(1.0));
     protected_add!(zero, add_const(0.0));
@@ -416,26 +477,31 @@ pub fn bdd_to_add(b: BddNode) -> AddNode {
     ))
 }
 
+/// Returns the BDD for pointwise comparison `a > b`.
 pub fn add_greater_than(a: AddNode, b: AddNode) -> BddNode {
     protected_add!(diff, add_minus(a, b));
     add_to_bdd(diff.get())
 }
 
+/// Returns the BDD for pointwise comparison `a < b`.
 pub fn add_less_than(a: AddNode, b: AddNode) -> BddNode {
     protected_add!(diff, add_minus(b, a));
     add_to_bdd(diff.get())
 }
 
+/// Returns the BDD for pointwise comparison `a >= b`.
 pub fn add_greater_or_equal(a: AddNode, b: AddNode) -> BddNode {
     protected_bdd!(lt, add_less_than(a, b));
     bdd_not(lt.get())
 }
 
+/// Returns the BDD for pointwise comparison `a <= b`.
 pub fn add_less_or_equal(a: AddNode, b: AddNode) -> BddNode {
     protected_bdd!(gt, add_greater_than(a, b));
     bdd_not(gt.get())
 }
 
+/// Returns the BDD for pointwise comparison `a == b`.
 pub fn add_equals(a: AddNode, b: AddNode) -> BddNode {
     protected_bdd!(gt, add_greater_than(a, b));
     protected_bdd!(lt, add_less_than(a, b));
@@ -443,28 +509,34 @@ pub fn add_equals(a: AddNode, b: AddNode) -> BddNode {
     bdd_not(neq.get())
 }
 
+/// Returns the BDD for pointwise comparison `a != b`.
 pub fn add_nequals(a: AddNode, b: AddNode) -> BddNode {
     protected_bdd!(gt, add_greater_than(a, b));
     protected_bdd!(lt, add_less_than(a, b));
     bdd_or(gt.get(), lt.get())
 }
 
+/// Sup-norm equality check with tolerance.
 pub fn add_equal_sup_norm(a: AddNode, b: AddNode, tolerance: f64) -> bool {
     unsafe { Sylvan_mtbdd_equal_norm_d(a.0, b.0, tolerance) == SYLVAN_TRUE }
 }
 
+/// Returns the global numeric tolerance used by DD helpers.
 pub fn epsilon() -> f64 {
     EPS
 }
 
+/// Counts satisfying minterms for a relation over `num_vars` variables.
 pub fn bdd_count_minterms(rel: BddNode, num_vars: u32) -> u64 {
     unsafe { Sylvan_mtbdd_satcount(rel.0, num_vars as usize) }.round() as u64
 }
 
+/// Returns the number of DAG nodes reachable from `root`.
 pub fn dag_size(root: MTBDD) -> usize {
     unsafe { Sylvan_mtbdd_nodecount(regular_node(root)) as usize }
 }
 
+/// Traverses each unique reachable node from `root` once.
 pub fn foreach_node<F: FnMut(MTBDD)>(root: MTBDD, mut f: F) {
     let mut visited: HashSet<MTBDD> = HashSet::new();
     let mut stack = vec![regular_node(root)];
@@ -482,6 +554,7 @@ pub fn foreach_node<F: FnMut(MTBDD)>(root: MTBDD, mut f: F) {
     }
 }
 
+/// Returns unique terminal nodes reachable from `root`.
 pub fn terminal_nodes(root: MTBDD) -> Vec<MTBDD> {
     let mut out = Vec::new();
     foreach_node(root, |n| {
@@ -494,14 +567,17 @@ pub fn terminal_nodes(root: MTBDD) -> Vec<MTBDD> {
     out
 }
 
+/// Returns the number of unique terminal nodes under `root`.
 pub fn num_terminals(root: MTBDD) -> usize {
     terminal_nodes(root).len()
 }
 
+/// Returns the number of unique nodes under `node`.
 pub fn num_nodes(node: MTBDD) -> usize {
     dag_size(node)
 }
 
+/// Computes standard statistics for an ADD root.
 pub fn add_stats(root: AddNode, num_vars: u32) -> AddStats {
     let root = regular_node(root.0);
     let minterms =
@@ -560,6 +636,7 @@ fn dump_add_dot_rec<W: Write>(
     Ok(())
 }
 
+/// Writes a Graphviz DOT dump of an ADD.
 pub fn dump_add_dot(root: AddNode, path: &str, var_names: &HashMap<BDD, String>) -> io::Result<()> {
     let mut out = File::create(path)?;
     writeln!(out, "digraph ADD {{")?;
@@ -583,10 +660,14 @@ pub fn dump_add_dot(root: AddNode, path: &str, var_names: &HashMap<BDD, String>)
     Ok(())
 }
 
+/// Writes a Graphviz DOT dump of a BDD.
 pub fn dump_bdd_dot(root: BddNode, path: &str, var_names: &HashMap<BDD, String>) -> io::Result<()> {
     dump_add_dot(AddNode(root.0), path, var_names)
 }
 
+/// Builds an ADD that decodes a bit-vector assignment into its integer value.
+///
+/// Bit order is little-endian with respect to `indices` (`indices[0]` is LSB).
 pub fn get_encoding(mgr: &mut DDManager, indices: &[BDDVAR]) -> AddNode {
     protected_add!(result, add_const(0.0));
     protected_bdd!(bdd_one_node, bdd_one());
@@ -614,6 +695,9 @@ pub fn get_encoding(mgr: &mut DDManager, indices: &[BDDVAR]) -> AddNode {
     result.get()
 }
 
+/// Normalizes `m` over `vars` by dividing by the local sum.
+///
+/// Zero denominators are replaced with `1` to avoid division by zero.
 pub fn unif(m: AddNode, vars: VarSet) -> AddNode {
     protected_add!(denom, add_sum_abstract(m, vars));
     protected_bdd!(denom_bdd, add_to_bdd(denom.get()));

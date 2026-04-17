@@ -42,6 +42,7 @@ pub type BDDVAR = SYLVAN_BDDVAR;
 pub struct AddNode(pub MTBDD);
 
 impl BddNode {
+    /// Returns the regular (non-complemented) node representation.
     #[inline]
     pub fn regular(self) -> Self {
         if self.is_complemented() {
@@ -51,6 +52,7 @@ impl BddNode {
         }
     }
 
+    /// Returns whether this node is represented as complemented.
     #[inline]
     pub fn is_complemented(self) -> bool {
         unsafe { sylvan_sys::mtbdd::Sylvan_mtbdd_hascomp(self.0) != 0 }
@@ -64,6 +66,7 @@ struct SylvanRuntime {
 
 pub struct DDManager {
     pub(crate) next_var_index: BDDVAR,
+    #[allow(dead_code)]
     runtime_guard: Option<MutexGuard<'static, ()>>,
 }
 
@@ -127,11 +130,8 @@ fn ensure_runtime_started() {
     }
 }
 
-fn release_runtime_manager() {
-    // Keep Sylvan/Lace alive for the process lifetime.
-}
-
 impl DDManager {
+    /// Creates a DD manager and initializes the global Sylvan runtime if needed.
     pub fn new() -> Self {
         let runtime_guard = lock_sylvan_api();
         ensure_runtime_started();
@@ -141,12 +141,14 @@ impl DDManager {
         }
     }
 
+    /// Allocates and returns a fresh DD variable index.
     pub fn new_var(&mut self) -> BDDVAR {
         let idx = self.next_var_index;
         self.next_var_index += 1;
         idx
     }
 
+    /// Returns the number of allocated DD variables.
     pub fn var_count(&self) -> usize {
         self.next_var_index as usize
     }
@@ -155,13 +157,6 @@ impl DDManager {
 impl Default for DDManager {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Drop for DDManager {
-    fn drop(&mut self) {
-        release_runtime_manager();
-        let _ = self.runtime_guard.take();
     }
 }
 

@@ -11,11 +11,13 @@ pub struct ProtectedLocal {
 }
 
 impl ProtectedLocal {
+    /// Creates a stack-local slot without registering protection yet.
     pub fn new(initial: MTBDD) -> Self {
         Self { slot: initial }
     }
 
     #[inline]
+    /// Registers this local slot with Sylvan protection.
     pub fn protect(&mut self) {
         unsafe {
             Sylvan_mtbdd_protect(&mut self.slot as *mut MTBDD);
@@ -23,16 +25,19 @@ impl ProtectedLocal {
     }
 
     #[inline]
+    /// Returns the current node value.
     pub fn get(&self) -> MTBDD {
         self.slot
     }
 
     #[inline]
+    /// Updates the local node value.
     pub fn set(&mut self, value: MTBDD) {
         self.slot = value;
     }
 
     #[inline]
+    /// Replaces and returns the previous node value.
     pub fn replace(&mut self, value: MTBDD) -> MTBDD {
         std::mem::replace(&mut self.slot, value)
     }
@@ -52,6 +57,8 @@ pub struct ProtectedBddLocal {
 }
 
 impl ProtectedBddLocal {
+    /// __Do not call this directly__ \
+    /// Use the `protected_bdd!` macro to create a new protected BDD slot
     pub fn new(initial: super::BddNode) -> Self {
         Self {
             local: ProtectedLocal::new(initial.0),
@@ -59,21 +66,25 @@ impl ProtectedBddLocal {
     }
 
     #[inline]
+    /// Registers this local BDD slot with Sylvan protection.
     pub fn protect(&mut self) {
         self.local.protect();
     }
 
     #[inline]
+    /// Returns the current BDD value.
     pub fn get(&self) -> super::BddNode {
         super::BddNode(self.local.get())
     }
 
     #[inline]
+    /// Updates the local BDD value.
     pub fn set(&mut self, value: super::BddNode) {
         self.local.set(value.0);
     }
 
     #[inline]
+    /// Replaces and returns the previous BDD value.
     pub fn replace(&mut self, value: super::BddNode) -> super::BddNode {
         super::BddNode(self.local.replace(value.0))
     }
@@ -85,6 +96,8 @@ pub struct ProtectedMapLocal {
 }
 
 impl ProtectedMapLocal {
+    /// __Do not call this directly__ \
+    /// Use the `protected_map!` macro to create a new protected BDD map slot with automatic protection.
     pub fn new(initial: super::BddMap) -> Self {
         Self {
             local: ProtectedLocal::new(initial.0),
@@ -92,21 +105,25 @@ impl ProtectedMapLocal {
     }
 
     #[inline]
+    /// Registers this local map slot with Sylvan protection.
     pub fn protect(&mut self) {
         self.local.protect();
     }
 
     #[inline]
+    /// Returns the current substitution map value.
     pub fn get(&self) -> super::BddMap {
         super::BddMap(self.local.get())
     }
 
     #[inline]
+    /// Updates the local substitution map value.
     pub fn set(&mut self, value: super::BddMap) {
         self.local.set(value.0);
     }
 
     #[inline]
+    /// Replaces and returns the previous substitution map value.
     pub fn replace(&mut self, value: super::BddMap) -> super::BddMap {
         super::BddMap(self.local.replace(value.0))
     }
@@ -118,6 +135,8 @@ pub struct ProtectedVarSetLocal {
 }
 
 impl ProtectedVarSetLocal {
+    /// __Do not call this directly__ \
+    /// Use the `protected_var_set!` macro to create a new protected variable set slot
     pub fn new(initial: super::VarSet) -> Self {
         Self {
             local: ProtectedLocal::new(initial.0),
@@ -125,21 +144,25 @@ impl ProtectedVarSetLocal {
     }
 
     #[inline]
+    /// Registers this local variable-set slot with Sylvan protection.
     pub fn protect(&mut self) {
         self.local.protect();
     }
 
     #[inline]
+    /// Returns the current variable-set value.
     pub fn get(&self) -> super::VarSet {
         super::VarSet(self.local.get())
     }
 
     #[inline]
+    /// Updates the local variable-set value.
     pub fn set(&mut self, value: super::VarSet) {
         self.local.set(value.0);
     }
 
     #[inline]
+    /// Replaces and returns the previous variable-set value.
     pub fn replace(&mut self, value: super::VarSet) -> super::VarSet {
         super::VarSet(self.local.replace(value.0))
     }
@@ -151,6 +174,8 @@ pub struct ProtectedAddLocal {
 }
 
 impl ProtectedAddLocal {
+    /// __Do not call this directly__ \
+    /// Use the `protected_add!` macro to create a new protected add slot with automatic protection.
     pub fn new(initial: super::AddNode) -> Self {
         Self {
             local: ProtectedLocal::new(initial.0),
@@ -158,26 +183,31 @@ impl ProtectedAddLocal {
     }
 
     #[inline]
+    /// Registers this local ADD slot with Sylvan protection.
     pub fn protect(&mut self) {
         self.local.protect();
     }
 
     #[inline]
+    /// Returns the current ADD value.
     pub fn get(&self) -> super::AddNode {
         super::AddNode(self.local.get())
     }
 
     #[inline]
+    /// Updates the local ADD value.
     pub fn set(&mut self, value: super::AddNode) {
         self.local.set(value.0);
     }
 
     #[inline]
+    /// Replaces and returns the previous ADD value.
     pub fn replace(&mut self, value: super::AddNode) -> super::AddNode {
         super::AddNode(self.local.replace(value.0))
     }
 }
 
+/// A stack-local protected BDD slot that automatically protects on construction.
 #[macro_export]
 macro_rules! protected_bdd {
     ($name:ident, $expr:expr) => {
@@ -194,6 +224,7 @@ macro_rules! protected_bdd {
     };
 }
 
+/// A stack-local protected MTBDD slot that automatically protects on construction.
 #[macro_export]
 macro_rules! protected_add {
     ($name:ident, $expr:expr) => {
@@ -210,6 +241,7 @@ macro_rules! protected_add {
     };
 }
 
+/// A stack-local protected BDD map slot that automatically protects on construction.
 #[macro_export]
 macro_rules! protected_map {
     ($name:ident, $expr:expr) => {
@@ -226,6 +258,7 @@ macro_rules! protected_map {
     };
 }
 
+/// A stack-local protected variable set slot that automatically protects on construction.
 #[macro_export]
 macro_rules! protected_var_set {
     ($name:ident, $expr:expr) => {

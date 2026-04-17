@@ -3,6 +3,7 @@ use crate::protected_bdd;
 use crate::symbolic_dtmc::SymbolicDTMC;
 use tracing::info;
 
+/// Computes reachable states from the initial state and filters transitions.
 pub fn compute_reachable_and_filter(dtmc: &mut SymbolicDTMC) {
     let init = dtmc.get_init_bdd();
 

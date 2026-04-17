@@ -267,7 +267,7 @@ fn translate_update(
         }
         let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
         let next_nodes = dtmc.next_name_to_indices[var_name].clone();
-        for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
+        for (curr, next) in curr_nodes.into_iter().zip(next_nodes) {
             protected_bdd!(curr_var, dd::bdd_var(&dtmc.mgr, curr));
             protected_bdd!(next_var, dd::bdd_var(&dtmc.mgr, next));
             protected_bdd!(eq, dd::bdd_equals(curr_var.get(), next_var.get()));
@@ -313,7 +313,7 @@ fn translate_module(module: &Module, dtmc: &mut SymbolicDTMC) -> SymbolicModule 
     for var_name in module.local_vars.iter().map(|v| &v.name) {
         let curr_nodes = dtmc.curr_name_to_indices[var_name].clone();
         let next_nodes = dtmc.next_name_to_indices[var_name].clone();
-        for (curr, next) in curr_nodes.into_iter().zip(next_nodes.into_iter()) {
+        for (curr, next) in curr_nodes.into_iter().zip(next_nodes) {
             protected_bdd!(curr_var, dd::bdd_var(&dtmc.mgr, curr));
             protected_bdd!(next_var, dd::bdd_var(&dtmc.mgr, next));
             protected_bdd!(eq, dd::bdd_equals(curr_var.get(), next_var.get()));
