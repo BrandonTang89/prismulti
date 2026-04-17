@@ -6,15 +6,15 @@ use tracing::info;
 use crate::analyze::DTMCModelInfo;
 use crate::ast::DTMCAst;
 use crate::ast::utils::init_value;
-use crate::dd;
-use crate::ref_manager::protected_local::{ProtectedAddLocal, ProtectedBddLocal};
-use crate::ref_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot, ProtectedVarSetSlot};
-use crate::ref_manager::{BDDVAR, BddNode, RefManager};
+use crate::dd_manager::dd;
+use crate::dd_manager::protected_local::{ProtectedAddLocal, ProtectedBddLocal};
+use crate::dd_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot, ProtectedVarSetSlot};
+use crate::dd_manager::{BDDVAR, BddNode, DDManager};
 
 /// Symbolic DTMC representation used by construction and analysis passes.
 pub struct SymbolicDTMC {
     /// Decision diagram manager with reference-tracking wrappers.
-    pub mgr: RefManager,
+    pub mgr: DDManager,
 
     /// Owned model AST.
     pub ast: DTMCAst,
@@ -63,7 +63,7 @@ pub struct SymbolicDTMC {
 impl SymbolicDTMC {
     /// Create an empty symbolic DTMC and allocate base roots.
     pub fn new(ast: DTMCAst, info: DTMCModelInfo) -> Self {
-        let mgr = RefManager::new();
+        let mgr = DDManager::new();
         let transitions = ProtectedAddSlot::new(dd::add_zero(&mgr));
         let next_var_cube = ProtectedVarSetSlot::new(dd::var_set_empty(&mgr));
         let curr_var_cube = ProtectedVarSetSlot::new(dd::var_set_empty(&mgr));

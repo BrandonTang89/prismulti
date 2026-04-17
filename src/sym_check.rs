@@ -13,11 +13,11 @@ use tracing::{debug, info, trace};
 
 use crate::ast::{Expr, PathFormula, Property};
 use crate::constr_symbolic::translate_expr;
-use crate::dd;
-use crate::ref_manager::protected_local::{
+use crate::dd_manager::dd;
+use crate::dd_manager::protected_local::{
     ProtectedAddLocal, ProtectedBddLocal, ProtectedMapLocal, ProtectedVarSetLocal,
 };
-use crate::ref_manager::{AddNode, BddNode};
+use crate::dd_manager::{AddNode, BddNode};
 use crate::symbolic_dtmc::SymbolicDTMC;
 
 #[derive(Clone, Debug)]

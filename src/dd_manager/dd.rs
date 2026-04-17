@@ -21,10 +21,10 @@ use sylvan_sys::{
     },
 };
 
-use crate::ref_manager::protected_local::{
+use crate::dd_manager::protected_local::{
     ProtectedAddLocal, ProtectedBddLocal, ProtectedMapLocal, ProtectedVarSetLocal,
 };
-use crate::ref_manager::{AddNode, AddStats, BDDVAR, BddMap, BddNode, EPS, RefManager, VarSet};
+use crate::dd_manager::{AddNode, AddStats, BDDVAR, BddMap, BddNode, DDManager, EPS, VarSet};
 
 #[inline]
 fn must_node(n: MTBDD, op: &str) -> MTBDD {
@@ -107,7 +107,7 @@ fn intern_id(ids: &mut HashMap<MTBDD, usize>, next_id: &mut usize, n: MTBDD) -> 
     })
 }
 
-pub fn var_set_from_indices(_mgr: &RefManager, vars: &[BDDVAR]) -> VarSet {
+pub fn var_set_from_indices(_mgr: &DDManager, vars: &[BDDVAR]) -> VarSet {
     let mut arr = vars.to_vec();
     let set = must_node(
         unsafe { Sylvan_mtbdd_set_from_array(arr.as_mut_ptr(), arr.len()) },
@@ -116,11 +116,11 @@ pub fn var_set_from_indices(_mgr: &RefManager, vars: &[BDDVAR]) -> VarSet {
     VarSet(set)
 }
 
-pub fn var_set_empty(_mgr: &RefManager) -> VarSet {
+pub fn var_set_empty(_mgr: &DDManager) -> VarSet {
     VarSet(must_node(unsafe { Sylvan_set_empty() }, "Sylvan_set_empty"))
 }
 
-pub fn build_swap_map(mgr: &RefManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
+pub fn build_swap_map(mgr: &DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
     let mut map = ProtectedMapLocal::new(BddMap(must_node(
         unsafe { Sylvan_map_empty() },
         "Sylvan_map_empty",
@@ -154,7 +154,7 @@ pub fn build_swap_map(mgr: &RefManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
     map.get()
 }
 
-pub fn read_var_index(mgr: &RefManager, node: MTBDD) -> BDDVAR {
+pub fn read_var_index(mgr: &DDManager, node: MTBDD) -> BDDVAR {
     if is_constant(mgr, node) {
         BDDVAR::MAX
     } else {
@@ -162,7 +162,7 @@ pub fn read_var_index(mgr: &RefManager, node: MTBDD) -> BDDVAR {
     }
 }
 
-pub fn read_then(mgr: &RefManager, node: MTBDD) -> MTBDD {
+pub fn read_then(mgr: &DDManager, node: MTBDD) -> MTBDD {
     if is_constant(mgr, node) {
         regular_node(node)
     } else {
@@ -170,7 +170,7 @@ pub fn read_then(mgr: &RefManager, node: MTBDD) -> MTBDD {
     }
 }
 
-pub fn read_else(mgr: &RefManager, node: MTBDD) -> MTBDD {
+pub fn read_else(mgr: &DDManager, node: MTBDD) -> MTBDD {
     if is_constant(mgr, node) {
         regular_node(node)
     } else {
@@ -178,11 +178,11 @@ pub fn read_else(mgr: &RefManager, node: MTBDD) -> MTBDD {
     }
 }
 
-pub fn is_constant(_mgr: &RefManager, node: MTBDD) -> bool {
+pub fn is_constant(_mgr: &DDManager, node: MTBDD) -> bool {
     unsafe { Sylvan_mtbdd_isleaf(regular_node(node)) != 0 }
 }
 
-pub fn add_value(mgr: &RefManager, node: MTBDD) -> Option<f64> {
+pub fn add_value(mgr: &DDManager, node: MTBDD) -> Option<f64> {
     if !is_constant(mgr, node) {
         return None;
     }
@@ -201,7 +201,7 @@ pub fn add_value(mgr: &RefManager, node: MTBDD) -> Option<f64> {
     }
 }
 
-pub fn add_eval_value(mgr: &RefManager, f: AddNode, inputs: &[i32]) -> f64 {
+pub fn add_eval_value(mgr: &DDManager, f: AddNode, inputs: &[i32]) -> f64 {
     let required = mgr.var_count();
     assert!(
         inputs.len() >= required,
@@ -224,7 +224,7 @@ pub fn add_eval_value(mgr: &RefManager, f: AddNode, inputs: &[i32]) -> f64 {
     }
 }
 
-pub fn extract_leftmost_path_from_bdd(mgr: &RefManager, root: BddNode) -> Option<Vec<i32>> {
+pub fn extract_leftmost_path_from_bdd(mgr: &DDManager, root: BddNode) -> Option<Vec<i32>> {
     let mut inputs = vec![0_i32; mgr.var_count()];
     let zero = zero_bdd().0;
     let mut node = root.0;
@@ -248,26 +248,26 @@ pub fn extract_leftmost_path_from_bdd(mgr: &RefManager, root: BddNode) -> Option
     }
 }
 
-pub fn bdd_one(_mgr: &mut RefManager) -> BddNode {
+pub fn bdd_one(_mgr: &mut DDManager) -> BddNode {
     one_bdd()
 }
 
-pub fn bdd_zero(_mgr: &mut RefManager) -> BddNode {
+pub fn bdd_zero(_mgr: &mut DDManager) -> BddNode {
     zero_bdd()
 }
 
-pub fn add_zero(mgr: &RefManager) -> AddNode {
+pub fn add_zero(mgr: &DDManager) -> AddNode {
     add_const(mgr, 0.0)
 }
 
-pub fn add_const(_mgr: &RefManager, value: f64) -> AddNode {
+pub fn add_const(_mgr: &DDManager, value: f64) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_double(value) },
         "Sylvan_mtbdd_double",
     ))
 }
 
-pub fn bdd_var(mgr: &RefManager, var_index: BDDVAR) -> BddNode {
+pub fn bdd_var(mgr: &DDManager, var_index: BDDVAR) -> BddNode {
     assert!(var_index < mgr.next_var_index);
     BddNode(must_node(
         unsafe { Sylvan_ithvar(var_index) },
@@ -275,7 +275,7 @@ pub fn bdd_var(mgr: &RefManager, var_index: BDDVAR) -> BddNode {
     ))
 }
 
-pub fn add_var(mgr: &RefManager, var_index: BDDVAR) -> AddNode {
+pub fn add_var(mgr: &DDManager, var_index: BDDVAR) -> AddNode {
     assert!(var_index < mgr.next_var_index);
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_ithvar(var_index) },
@@ -283,41 +283,41 @@ pub fn add_var(mgr: &RefManager, var_index: BDDVAR) -> AddNode {
     ))
 }
 
-pub fn bdd_not(_mgr: &RefManager, a: BddNode) -> BddNode {
+pub fn bdd_not(_mgr: &DDManager, a: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_not(a.0) }, "Sylvan_not"))
 }
 
-pub fn bdd_equals(_mgr: &RefManager, a: BddNode, b: BddNode) -> BddNode {
+pub fn bdd_equals(_mgr: &DDManager, a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_equiv(a.0, b.0) }, "Sylvan_equiv"))
 }
 
-pub fn bdd_nequals(_mgr: &RefManager, a: BddNode, b: BddNode) -> BddNode {
+pub fn bdd_nequals(_mgr: &DDManager, a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_xor(a.0, b.0) }, "Sylvan_xor"))
 }
 
-pub fn bdd_and(_mgr: &RefManager, a: BddNode, b: BddNode) -> BddNode {
+pub fn bdd_and(_mgr: &DDManager, a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_and(a.0, b.0) }, "Sylvan_and"))
 }
 
-pub fn bdd_or(_mgr: &RefManager, a: BddNode, b: BddNode) -> BddNode {
+pub fn bdd_or(_mgr: &DDManager, a: BddNode, b: BddNode) -> BddNode {
     BddNode(must_node(unsafe { Sylvan_or(a.0, b.0) }, "Sylvan_or"))
 }
 
-pub fn bdd_exists_abstract(_mgr: &RefManager, a: BddNode, vars: VarSet) -> BddNode {
+pub fn bdd_exists_abstract(_mgr: &DDManager, a: BddNode, vars: VarSet) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_exists(a.0, vars.0) },
         "Sylvan_exists",
     ))
 }
 
-pub fn bdd_and_then_existsabs(_mgr: &RefManager, f: BddNode, g: BddNode, vars: VarSet) -> BddNode {
+pub fn bdd_and_then_existsabs(_mgr: &DDManager, f: BddNode, g: BddNode, vars: VarSet) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_and_exists(f.0, g.0, vars.0) },
         "Sylvan_and_exists",
     ))
 }
 
-pub fn bdd_swap_variables(mgr: &mut RefManager, f: BddNode, x: &[BDDVAR], y: &[BDDVAR]) -> BddNode {
+pub fn bdd_swap_variables(mgr: &mut DDManager, f: BddNode, x: &[BDDVAR], y: &[BDDVAR]) -> BddNode {
     assert_eq!(x.len(), y.len());
     let map = ProtectedMapLocal::new(build_swap_map(mgr, x, y));
     BddNode(must_node(
@@ -326,7 +326,7 @@ pub fn bdd_swap_variables(mgr: &mut RefManager, f: BddNode, x: &[BDDVAR], y: &[B
     ))
 }
 
-pub fn add_swap_vars(mgr: &mut RefManager, f: AddNode, x: &[BDDVAR], y: &[BDDVAR]) -> AddNode {
+pub fn add_swap_vars(mgr: &mut DDManager, f: AddNode, x: &[BDDVAR], y: &[BDDVAR]) -> AddNode {
     assert_eq!(x.len(), y.len());
     let map = ProtectedMapLocal::new(build_swap_map(mgr, x, y));
     AddNode(must_node(
@@ -335,13 +335,13 @@ pub fn add_swap_vars(mgr: &mut RefManager, f: AddNode, x: &[BDDVAR], y: &[BDDVAR
     ))
 }
 
-pub fn add_matrix_multiply(mgr: &RefManager, a: AddNode, b: AddNode, z: &[BDDVAR]) -> AddNode {
+pub fn add_matrix_multiply(mgr: &DDManager, a: AddNode, b: AddNode, z: &[BDDVAR]) -> AddNode {
     let vars = ProtectedVarSetLocal::new(var_set_from_indices(mgr, z));
     add_matrix_multiply_with_var_set(mgr, a, b, vars.get())
 }
 
 pub fn add_matrix_multiply_with_var_set(
-    _mgr: &RefManager,
+    _mgr: &DDManager,
     a: AddNode,
     b: AddNode,
     vars: VarSet,
@@ -352,50 +352,50 @@ pub fn add_matrix_multiply_with_var_set(
     ))
 }
 
-pub fn get_var_set_for_indices(mgr: &RefManager, vars: &[BDDVAR]) -> VarSet {
+pub fn get_var_set_for_indices(mgr: &DDManager, vars: &[BDDVAR]) -> VarSet {
     var_set_from_indices(mgr, vars)
 }
 
-pub fn get_swap_map_for_indices(mgr: &mut RefManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
+pub fn get_swap_map_for_indices(mgr: &mut DDManager, x: &[BDDVAR], y: &[BDDVAR]) -> BddMap {
     build_swap_map(mgr, x, y)
 }
 
-pub fn bdd_compose_with_map(_mgr: &mut RefManager, f: BddNode, map: BddMap) -> BddNode {
+pub fn bdd_compose_with_map(_mgr: &mut DDManager, f: BddNode, map: BddMap) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_compose(f.0, map.0) },
         "Sylvan_compose",
     ))
 }
 
-pub fn add_compose_with_map(_mgr: &mut RefManager, f: AddNode, map: BddMap) -> AddNode {
+pub fn add_compose_with_map(_mgr: &mut DDManager, f: AddNode, map: BddMap) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_compose(f.0, map.0) },
         "Sylvan_mtbdd_compose",
     ))
 }
 
-pub fn add_plus(_mgr: &mut RefManager, a: AddNode, b: AddNode) -> AddNode {
+pub fn add_plus(_mgr: &mut DDManager, a: AddNode, b: AddNode) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_plus(a.0, b.0) },
         "Sylvan_mtbdd_plus",
     ))
 }
 
-pub fn add_minus(_mgr: &mut RefManager, a: AddNode, b: AddNode) -> AddNode {
+pub fn add_minus(_mgr: &mut DDManager, a: AddNode, b: AddNode) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_minus(a.0, b.0) },
         "Sylvan_mtbdd_minus",
     ))
 }
 
-pub fn add_times(_mgr: &mut RefManager, a: AddNode, b: AddNode) -> AddNode {
+pub fn add_times(_mgr: &mut DDManager, a: AddNode, b: AddNode) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_times(a.0, b.0) },
         "Sylvan_mtbdd_times",
     ))
 }
 
-pub fn add_divide(_mgr: &mut RefManager, a: AddNode, b: AddNode) -> AddNode {
+pub fn add_divide(_mgr: &mut DDManager, a: AddNode, b: AddNode) -> AddNode {
     let op: MTBDD_APPLY_OP = mtbdd_divide_op;
     AddNode(must_node(
         unsafe { sylvan_sys::mtbdd::Sylvan_mtbdd_apply(a.0, b.0, op) },
@@ -404,7 +404,7 @@ pub fn add_divide(_mgr: &mut RefManager, a: AddNode, b: AddNode) -> AddNode {
 }
 
 pub fn add_ite(
-    _mgr: &mut RefManager,
+    _mgr: &mut DDManager,
     cond: BddNode,
     then_branch: AddNode,
     else_branch: AddNode,
@@ -415,39 +415,39 @@ pub fn add_ite(
     ))
 }
 
-pub fn add_sum_abstract(_mgr: &RefManager, f: AddNode, vars: VarSet) -> AddNode {
+pub fn add_sum_abstract(_mgr: &DDManager, f: AddNode, vars: VarSet) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_abstract_plus(f.0, vars.0) },
         "Sylvan_mtbdd_abstract_plus",
     ))
 }
 
-pub fn add_or_abstract(mgr: &RefManager, f: AddNode, vars: VarSet) -> AddNode {
+pub fn add_or_abstract(mgr: &DDManager, f: AddNode, vars: VarSet) -> AddNode {
     add_max_abstract(mgr, f, vars)
 }
 
-pub fn add_max_abstract(_mgr: &RefManager, f: AddNode, vars: VarSet) -> AddNode {
+pub fn add_max_abstract(_mgr: &DDManager, f: AddNode, vars: VarSet) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_abstract_max(f.0, vars.0) },
         "Sylvan_mtbdd_abstract_max",
     ))
 }
 
-pub fn add_min_abstract(_mgr: &RefManager, f: AddNode, vars: VarSet) -> AddNode {
+pub fn add_min_abstract(_mgr: &DDManager, f: AddNode, vars: VarSet) -> AddNode {
     AddNode(must_node(
         unsafe { Sylvan_mtbdd_abstract_min(f.0, vars.0) },
         "Sylvan_mtbdd_abstract_min",
     ))
 }
 
-pub fn add_to_bdd(_mgr: &mut RefManager, a: AddNode) -> BddNode {
+pub fn add_to_bdd(_mgr: &mut DDManager, a: AddNode) -> BddNode {
     BddNode(must_node(
         unsafe { Sylvan_mtbdd_strict_threshold_double(a.0, EPS) },
         "Sylvan_mtbdd_strict_threshold_double",
     ))
 }
 
-pub fn add_to_bdd_pattern(mgr: &mut RefManager, a: AddNode) -> BddNode {
+pub fn add_to_bdd_pattern(mgr: &mut DDManager, a: AddNode) -> BddNode {
     let zero_for_gt = ProtectedAddLocal::new(add_const(mgr, 0.0));
     let gt_zero = ProtectedBddLocal::new(add_greater_than(mgr, a, zero_for_gt.get()));
     let zero_for_lt = ProtectedAddLocal::new(add_const(mgr, 0.0));
@@ -455,7 +455,7 @@ pub fn add_to_bdd_pattern(mgr: &mut RefManager, a: AddNode) -> BddNode {
     bdd_or(mgr, gt_zero.get(), lt_zero.get())
 }
 
-pub fn bdd_to_add(mgr: &mut RefManager, b: BddNode) -> AddNode {
+pub fn bdd_to_add(mgr: &mut DDManager, b: BddNode) -> AddNode {
     let one = ProtectedAddLocal::new(add_const(mgr, 1.0));
     let zero = ProtectedAddLocal::new(add_const(mgr, 0.0));
     AddNode(must_node(
@@ -464,56 +464,56 @@ pub fn bdd_to_add(mgr: &mut RefManager, b: BddNode) -> AddNode {
     ))
 }
 
-pub fn add_greater_than(mgr: &mut RefManager, a: AddNode, b: AddNode) -> BddNode {
+pub fn add_greater_than(mgr: &mut DDManager, a: AddNode, b: AddNode) -> BddNode {
     let diff = ProtectedAddLocal::new(add_minus(mgr, a, b));
     add_to_bdd(mgr, diff.get())
 }
 
-pub fn add_less_than(mgr: &mut RefManager, a: AddNode, b: AddNode) -> BddNode {
+pub fn add_less_than(mgr: &mut DDManager, a: AddNode, b: AddNode) -> BddNode {
     let diff = ProtectedAddLocal::new(add_minus(mgr, b, a));
     add_to_bdd(mgr, diff.get())
 }
 
-pub fn add_greater_or_equal(mgr: &mut RefManager, a: AddNode, b: AddNode) -> BddNode {
+pub fn add_greater_or_equal(mgr: &mut DDManager, a: AddNode, b: AddNode) -> BddNode {
     let lt = ProtectedBddLocal::new(add_less_than(mgr, a, b));
     bdd_not(mgr, lt.get())
 }
 
-pub fn add_less_or_equal(mgr: &mut RefManager, a: AddNode, b: AddNode) -> BddNode {
+pub fn add_less_or_equal(mgr: &mut DDManager, a: AddNode, b: AddNode) -> BddNode {
     let gt = ProtectedBddLocal::new(add_greater_than(mgr, a, b));
     bdd_not(mgr, gt.get())
 }
 
-pub fn add_equals(mgr: &mut RefManager, a: AddNode, b: AddNode) -> BddNode {
+pub fn add_equals(mgr: &mut DDManager, a: AddNode, b: AddNode) -> BddNode {
     let gt = ProtectedBddLocal::new(add_greater_than(mgr, a, b));
     let lt = ProtectedBddLocal::new(add_less_than(mgr, a, b));
     let neq = ProtectedBddLocal::new(bdd_or(mgr, gt.get(), lt.get()));
     bdd_not(mgr, neq.get())
 }
 
-pub fn add_nequals(mgr: &mut RefManager, a: AddNode, b: AddNode) -> BddNode {
+pub fn add_nequals(mgr: &mut DDManager, a: AddNode, b: AddNode) -> BddNode {
     let gt = ProtectedBddLocal::new(add_greater_than(mgr, a, b));
     let lt = ProtectedBddLocal::new(add_less_than(mgr, a, b));
     bdd_or(mgr, gt.get(), lt.get())
 }
 
-pub fn add_equal_sup_norm(_mgr: &RefManager, a: AddNode, b: AddNode, tolerance: f64) -> bool {
+pub fn add_equal_sup_norm(_mgr: &DDManager, a: AddNode, b: AddNode, tolerance: f64) -> bool {
     unsafe { Sylvan_mtbdd_equal_norm_d(a.0, b.0, tolerance) == SYLVAN_TRUE }
 }
 
-pub fn epsilon(_mgr: &RefManager) -> f64 {
+pub fn epsilon(_mgr: &DDManager) -> f64 {
     EPS
 }
 
-pub fn bdd_count_minterms(_mgr: &RefManager, rel: BddNode, num_vars: u32) -> u64 {
+pub fn bdd_count_minterms(_mgr: &DDManager, rel: BddNode, num_vars: u32) -> u64 {
     unsafe { Sylvan_mtbdd_satcount(rel.0, num_vars as usize) }.round() as u64
 }
 
-pub fn dag_size(_mgr: &RefManager, root: MTBDD) -> usize {
+pub fn dag_size(_mgr: &DDManager, root: MTBDD) -> usize {
     unsafe { Sylvan_mtbdd_nodecount(regular_node(root)) as usize }
 }
 
-pub fn foreach_node<F: FnMut(MTBDD)>(mgr: &RefManager, root: MTBDD, mut f: F) {
+pub fn foreach_node<F: FnMut(MTBDD)>(mgr: &DDManager, root: MTBDD, mut f: F) {
     let mut visited: HashSet<MTBDD> = HashSet::new();
     let mut stack = vec![regular_node(root)];
 
@@ -530,7 +530,7 @@ pub fn foreach_node<F: FnMut(MTBDD)>(mgr: &RefManager, root: MTBDD, mut f: F) {
     }
 }
 
-pub fn terminal_nodes(mgr: &RefManager, root: MTBDD) -> Vec<MTBDD> {
+pub fn terminal_nodes(mgr: &DDManager, root: MTBDD) -> Vec<MTBDD> {
     let mut out = Vec::new();
     foreach_node(mgr, root, |n| {
         if is_constant(mgr, n) {
@@ -542,15 +542,15 @@ pub fn terminal_nodes(mgr: &RefManager, root: MTBDD) -> Vec<MTBDD> {
     out
 }
 
-pub fn num_terminals(mgr: &RefManager, root: MTBDD) -> usize {
+pub fn num_terminals(mgr: &DDManager, root: MTBDD) -> usize {
     terminal_nodes(mgr, root).len()
 }
 
-pub fn num_nodes(mgr: &RefManager, node: MTBDD) -> usize {
+pub fn num_nodes(mgr: &DDManager, node: MTBDD) -> usize {
     dag_size(mgr, node)
 }
 
-pub fn add_stats(mgr: &RefManager, root: AddNode, num_vars: u32) -> AddStats {
+pub fn add_stats(mgr: &DDManager, root: AddNode, num_vars: u32) -> AddStats {
     let root = regular_node(root.0);
     let minterms =
         unsafe { sylvan_sys::mtbdd::Sylvan_mtbdd_satcount(root, num_vars as usize) }.round() as u64;
@@ -562,7 +562,7 @@ pub fn add_stats(mgr: &RefManager, root: AddNode, num_vars: u32) -> AddStats {
 }
 
 fn var_index_label_map(
-    mgr: &RefManager,
+    mgr: &DDManager,
     var_names: &HashMap<BDD, String>,
 ) -> HashMap<BDDVAR, String> {
     let mut labels = HashMap::new();
@@ -576,7 +576,7 @@ fn var_index_label_map(
 }
 
 fn dump_add_dot_rec<W: Write>(
-    mgr: &RefManager,
+    mgr: &DDManager,
     n: MTBDD,
     out: &mut W,
     labels: &HashMap<BDDVAR, String>,
@@ -613,7 +613,7 @@ fn dump_add_dot_rec<W: Write>(
 }
 
 pub fn dump_add_dot(
-    mgr: &RefManager,
+    mgr: &DDManager,
     root: AddNode,
     path: &str,
     var_names: &HashMap<BDD, String>,
@@ -642,7 +642,7 @@ pub fn dump_add_dot(
 }
 
 pub fn dump_bdd_dot(
-    mgr: &RefManager,
+    mgr: &DDManager,
     root: BddNode,
     path: &str,
     var_names: &HashMap<BDD, String>,
@@ -650,7 +650,7 @@ pub fn dump_bdd_dot(
     dump_add_dot(mgr, AddNode(root.0), path, var_names)
 }
 
-pub fn get_encoding(mgr: &mut RefManager, indices: &[BDDVAR]) -> AddNode {
+pub fn get_encoding(mgr: &mut DDManager, indices: &[BDDVAR]) -> AddNode {
     let mut result = ProtectedAddLocal::new(add_const(mgr, 0.0));
     let bdd_one_node = ProtectedBddLocal::new(bdd_one(mgr));
 
@@ -674,7 +674,7 @@ pub fn get_encoding(mgr: &mut RefManager, indices: &[BDDVAR]) -> AddNode {
     result.get()
 }
 
-pub fn unif(mgr: &mut RefManager, m: AddNode, vars: VarSet) -> AddNode {
+pub fn unif(mgr: &mut DDManager, m: AddNode, vars: VarSet) -> AddNode {
     let denom = ProtectedAddLocal::new(add_sum_abstract(mgr, m, vars));
     let denom_bdd = ProtectedBddLocal::new(add_to_bdd(mgr, denom.get()));
     let one = ProtectedAddLocal::new(add_const(mgr, 1.0));

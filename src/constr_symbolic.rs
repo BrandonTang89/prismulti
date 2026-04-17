@@ -5,11 +5,11 @@ use tracing::{debug, info, trace};
 
 use crate::analyze::DTMCModelInfo;
 use crate::ast::*;
-use crate::dd;
+use crate::dd_manager::AddNode;
+use crate::dd_manager::dd;
+use crate::dd_manager::protected_local::{ProtectedAddLocal, ProtectedBddLocal};
+use crate::dd_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot};
 use crate::reachability::compute_reachable_and_filter;
-use crate::ref_manager::AddNode;
-use crate::ref_manager::protected_local::{ProtectedAddLocal, ProtectedBddLocal};
-use crate::ref_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot};
 use crate::symbolic_dtmc::SymbolicDTMC;
 
 /// Internal symbolic representation of a single command.

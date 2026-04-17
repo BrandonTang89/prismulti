@@ -1,6 +1,6 @@
 use anyhow::Result;
 use prismulti::constr_symbolic::build_symbolic_dtmc;
-use prismulti::dd;
+use prismulti::dd_manager::dd;
 use prismulti::parser::parse_dtmc;
 use prismulti::symbolic_dtmc::SymbolicDTMC;
 use std::collections::HashMap;

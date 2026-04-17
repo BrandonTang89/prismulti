@@ -11,9 +11,8 @@
 pub mod analyze;
 pub mod ast;
 pub mod constr_symbolic;
-pub mod dd;
+pub mod dd_manager;
 pub mod parser;
 pub mod reachability;
-pub mod ref_manager;
 pub mod sym_check;
 pub mod symbolic_dtmc;

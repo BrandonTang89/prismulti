@@ -1,5 +1,6 @@
 //! Runtime ownership/types for Sylvan-backed DD operations.
 
+pub mod dd;
 pub mod protected_local;
 pub mod protected_slot;
 
@@ -61,7 +62,7 @@ struct SylvanRuntime {
     initialized: bool,
 }
 
-pub struct RefManager {
+pub struct DDManager {
     pub(crate) next_var_index: BDDVAR,
     runtime_guard: Option<MutexGuard<'static, ()>>,
 }
@@ -130,7 +131,7 @@ fn release_runtime_manager() {
     // Keep Sylvan/Lace alive for the process lifetime.
 }
 
-impl RefManager {
+impl DDManager {
     pub fn new() -> Self {
         let runtime_guard = lock_sylvan_api();
         ensure_runtime_started();
@@ -151,13 +152,13 @@ impl RefManager {
     }
 }
 
-impl Default for RefManager {
+impl Default for DDManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Drop for RefManager {
+impl Drop for DDManager {
     fn drop(&mut self) {
         release_runtime_manager();
         let _ = self.runtime_guard.take();
@@ -167,10 +168,10 @@ impl Drop for RefManager {
 #[cfg(test)]
 mod tests {
     use super::protected_local::{ProtectedAddLocal, ProtectedBddLocal, ProtectedVarSetLocal};
-    use super::{BddNode, RefManager};
-    use crate::dd;
+    use super::{BddNode, DDManager};
+    use crate::dd_manager::dd;
 
-    fn assert_witness_satisfies(root: BddNode, mgr: &mut RefManager, witness: &[i32]) {
+    fn assert_witness_satisfies(root: BddNode, mgr: &mut DDManager, witness: &[i32]) {
         let root_add = ProtectedAddLocal::new(dd::bdd_to_add(mgr, root));
         let value = dd::add_eval_value(mgr, root_add.get(), witness);
         assert_eq!(value, 1.0, "extracted witness must satisfy root BDD");
@@ -178,7 +179,7 @@ mod tests {
 
     #[test]
     fn extract_leftmost_path_handles_non_complemented_root() {
-        let mut mgr = RefManager::new();
+        let mut mgr = DDManager::new();
 
         let x0_idx = mgr.new_var();
         let x0 = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0_idx));
@@ -193,7 +194,7 @@ mod tests {
 
     #[test]
     fn extract_leftmost_path_handles_complemented_root() {
-        let mut mgr = RefManager::new();
+        let mut mgr = DDManager::new();
 
         let x0_idx = mgr.new_var();
         let x0 = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0_idx));
@@ -209,7 +210,7 @@ mod tests {
 
     #[test]
     fn add_max_abstract_takes_max_over_abstracted_var() {
-        let mut mgr = RefManager::new();
+        let mut mgr = DDManager::new();
         let x0 = mgr.new_var();
 
         let cond = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0));
@@ -235,7 +236,7 @@ mod tests {
 
     #[test]
     fn add_min_abstract_takes_min_over_abstracted_var() {
-        let mut mgr = RefManager::new();
+        let mut mgr = DDManager::new();
         let x0 = mgr.new_var();
 
         let cond = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0));

@@ -1,21 +1,24 @@
+Currently ProtectedLocal::uses lazy protect for the following reason:
 
-Using local roots guard is inefficient since we very frequently allocate memory on the heap with the use of Vec.
-We will replace its functionality entirely with the use of protected local.
+- With eager protect in ProtectedLocal::new, we protect the address inside the constructor.
+- Returning Self can move that value, so Sylvan is tracking an old pointer.
+- Later nested protect/unprotect stack behavior hits invalid ordering/address assumptions and triggers protect_down assertions (this is the exact failure we saw).
+- Lazy protect ensures first protect happens only after the value is in its final local slot (get/set/...), so the protected pointer is stable.
 
-The idea is that for each temporary we make, we store it within a protected local.
+But I don't like having the extra bool within the struct for performance reasons. Intead, we should make a ProtectedLocal that doesn't do this.
+What we want is a ProtectedLocal that uses a macro to first construt the ProtectedLocal without protection, then immediately protects it
 
-The current API is also quite messy on using local roots guard is also very messy which I dislike. It is not clear who supposed to protect what. So lets make this clear
+E.g. 
+```rust
+protected_bdd!(local, bdd.zero());
+```
 
-For EVERY function of the form
+where protected_bdd! would expand to something like:
+```rust
+let mut local = ProtectedBddLocal::new(bdd.zero());
+local.protect();
+```
 
-fn foo(a: BddNode, b: BddNode, ...) -> BddNode
+Now, the second thing is that almost all the functions in dd.rs take a DDManager as an input, but doesn't need to be. Remove that parameter from all the functions that don't need a DDManager. This will make the code cleaner and more efficient, as we won't have to pass around the DDManager unnecessarily. Adjust all the call sites accordingly.
 
-it is the CALLER's responsibility to protect a and b (and the rest of the parameters) as well as the result.
-Within foo, we only need to protect temporaries we create. So most of the functions currently in ref_manger.rs should be changed to assume this.
-We should also inspect each and every call site to fix the API contract and ensure that the caller is protecting the parameters and result as required.
-
-Also help me to move all methods that don't actually depend on ref_manager.rs out of the impl of RefManager.
-
-Ensure that all tests continue to pass after this change.
-
-Good luck
+Ensure all tests continue to pass. Good luck!

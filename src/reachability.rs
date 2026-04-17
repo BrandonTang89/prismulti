@@ -1,5 +1,5 @@
-use crate::dd;
-use crate::ref_manager::protected_local::{ProtectedBddLocal, ProtectedMapLocal};
+use crate::dd_manager::dd;
+use crate::dd_manager::protected_local::{ProtectedBddLocal, ProtectedMapLocal};
 use crate::symbolic_dtmc::SymbolicDTMC;
 use tracing::info;
 
