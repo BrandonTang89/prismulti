@@ -1,78 +1,47 @@
-use std::cell::{Cell, UnsafeCell};
 use sylvan_sys::MTBDD;
 use sylvan_sys::mtbdd::{Sylvan_mtbdd_protect, Sylvan_mtbdd_unprotect};
 
 /// A stack-local protected MTBDD slot.
 ///
-/// Keep this value at a stable address while it is alive. Creating the wrapper
-/// registers the slot with Sylvan's local protection stack; dropping it
-/// unregisters the slot.
+/// Keep this value at a stable address while it is alive. Construct this wrapper
+/// first, then call `protect` once in the final local slot.
 #[derive(Debug)]
 pub struct ProtectedLocal {
-    slot: UnsafeCell<MTBDD>,
-    protected: Cell<bool>,
+    slot: MTBDD,
 }
 
 impl ProtectedLocal {
     pub fn new(initial: MTBDD) -> Self {
-        Self {
-            slot: UnsafeCell::new(initial),
-            protected: Cell::new(false),
-        }
+        Self { slot: initial }
     }
 
     #[inline]
-    fn ensure_protected(&self) {
-        if self.protected.get() {
-            return;
-        }
-
+    pub fn protect(&mut self) {
         unsafe {
-            Sylvan_mtbdd_protect(self.slot.get());
+            Sylvan_mtbdd_protect(&mut self.slot as *mut MTBDD);
         }
-        self.protected.set(true);
     }
 
     #[inline]
     pub fn get(&self) -> MTBDD {
-        self.ensure_protected();
-        unsafe { *self.slot.get() }
+        self.slot
     }
 
     #[inline]
     pub fn set(&mut self, value: MTBDD) {
-        self.ensure_protected();
-        unsafe {
-            *self.slot.get() = value;
-        }
+        self.slot = value;
     }
 
     #[inline]
     pub fn replace(&mut self, value: MTBDD) -> MTBDD {
-        self.ensure_protected();
-        unsafe { std::mem::replace(&mut *self.slot.get(), value) }
-    }
-
-    #[inline]
-    pub fn as_ptr(&self) -> *const MTBDD {
-        self.ensure_protected();
-        self.slot.get() as *const MTBDD
-    }
-
-    #[inline]
-    pub fn as_mut_ptr(&mut self) -> *mut MTBDD {
-        self.ensure_protected();
-        self.slot.get()
+        std::mem::replace(&mut self.slot, value)
     }
 }
 
 impl Drop for ProtectedLocal {
     fn drop(&mut self) {
-        if !self.protected.get() {
-            return;
-        }
         unsafe {
-            Sylvan_mtbdd_unprotect(self.slot.get());
+            Sylvan_mtbdd_unprotect(&mut self.slot as *mut MTBDD);
         }
     }
 }
@@ -87,6 +56,11 @@ impl ProtectedBddLocal {
         Self {
             local: ProtectedLocal::new(initial.0),
         }
+    }
+
+    #[inline]
+    pub fn protect(&mut self) {
+        self.local.protect();
     }
 
     #[inline]
@@ -118,6 +92,11 @@ impl ProtectedMapLocal {
     }
 
     #[inline]
+    pub fn protect(&mut self) {
+        self.local.protect();
+    }
+
+    #[inline]
     pub fn get(&self) -> super::BddMap {
         super::BddMap(self.local.get())
     }
@@ -143,6 +122,11 @@ impl ProtectedVarSetLocal {
         Self {
             local: ProtectedLocal::new(initial.0),
         }
+    }
+
+    #[inline]
+    pub fn protect(&mut self) {
+        self.local.protect();
     }
 
     #[inline]
@@ -174,6 +158,11 @@ impl ProtectedAddLocal {
     }
 
     #[inline]
+    pub fn protect(&mut self) {
+        self.local.protect();
+    }
+
+    #[inline]
     pub fn get(&self) -> super::AddNode {
         super::AddNode(self.local.get())
     }
@@ -187,4 +176,40 @@ impl ProtectedAddLocal {
     pub fn replace(&mut self, value: super::AddNode) -> super::AddNode {
         super::AddNode(self.local.replace(value.0))
     }
+}
+
+#[macro_export]
+macro_rules! protected_bdd {
+    ($name:ident, $expr:expr) => {
+        #[allow(unused_mut)]
+        let mut $name = $crate::dd_manager::protected_local::ProtectedBddLocal::new($expr);
+        $name.protect();
+    };
+}
+
+#[macro_export]
+macro_rules! protected_add {
+    ($name:ident, $expr:expr) => {
+        #[allow(unused_mut)]
+        let mut $name = $crate::dd_manager::protected_local::ProtectedAddLocal::new($expr);
+        $name.protect();
+    };
+}
+
+#[macro_export]
+macro_rules! protected_map {
+    ($name:ident, $expr:expr) => {
+        #[allow(unused_mut)]
+        let mut $name = $crate::dd_manager::protected_local::ProtectedMapLocal::new($expr);
+        $name.protect();
+    };
+}
+
+#[macro_export]
+macro_rules! protected_var_set {
+    ($name:ident, $expr:expr) => {
+        #[allow(unused_mut)]
+        let mut $name = $crate::dd_manager::protected_local::ProtectedVarSetLocal::new($expr);
+        $name.protect();
+    };
 }

@@ -167,12 +167,11 @@ impl Drop for DDManager {
 
 #[cfg(test)]
 mod tests {
-    use super::protected_local::{ProtectedAddLocal, ProtectedBddLocal, ProtectedVarSetLocal};
     use super::{BddNode, DDManager};
     use crate::dd_manager::dd;
 
     fn assert_witness_satisfies(root: BddNode, mgr: &mut DDManager, witness: &[i32]) {
-        let root_add = ProtectedAddLocal::new(dd::bdd_to_add(mgr, root));
+        crate::protected_add!(root_add, dd::bdd_to_add(root));
         let value = dd::add_eval_value(mgr, root_add.get(), witness);
         assert_eq!(value, 1.0, "extracted witness must satisfy root BDD");
     }
@@ -182,7 +181,7 @@ mod tests {
         let mut mgr = DDManager::new();
 
         let x0_idx = mgr.new_var();
-        let x0 = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0_idx));
+        crate::protected_bdd!(x0, dd::bdd_var(&mgr, x0_idx));
         assert!(!x0.get().is_complemented());
 
         let witness =
@@ -197,8 +196,8 @@ mod tests {
         let mut mgr = DDManager::new();
 
         let x0_idx = mgr.new_var();
-        let x0 = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0_idx));
-        let not_x0 = ProtectedBddLocal::new(dd::bdd_not(&mgr, x0.get()));
+        crate::protected_bdd!(x0, dd::bdd_var(&mgr, x0_idx));
+        crate::protected_bdd!(not_x0, dd::bdd_not(x0.get()));
         assert!(not_x0.get().is_complemented());
 
         let witness = dd::extract_leftmost_path_from_bdd(&mgr, not_x0.get())
@@ -213,20 +212,18 @@ mod tests {
         let mut mgr = DDManager::new();
         let x0 = mgr.new_var();
 
-        let cond = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0));
-        let then_branch = ProtectedAddLocal::new(dd::add_const(&mgr, 0.2));
-        let else_branch = ProtectedAddLocal::new(dd::add_const(&mgr, 0.7));
-        let f = ProtectedAddLocal::new(dd::add_ite(
-            &mut mgr,
-            cond.get(),
-            then_branch.get(),
-            else_branch.get(),
-        ));
+        crate::protected_bdd!(cond, dd::bdd_var(&mgr, x0));
+        crate::protected_add!(then_branch, dd::add_const(0.2));
+        crate::protected_add!(else_branch, dd::add_const(0.7));
+        crate::protected_add!(
+            f,
+            dd::add_ite(cond.get(), then_branch.get(), else_branch.get())
+        );
 
-        let vars = ProtectedVarSetLocal::new(dd::var_set_from_indices(&mgr, &[x0]));
-        let max_abs = ProtectedAddLocal::new(dd::add_max_abstract(&mgr, f.get(), vars.get()));
+        crate::protected_var_set!(vars, dd::var_set_from_indices(&[x0]));
+        crate::protected_add!(max_abs, dd::add_max_abstract(f.get(), vars.get()));
 
-        let value = dd::add_value(&mgr, max_abs.get().0)
+        let value = dd::add_value(max_abs.get().0)
             .expect("max abstraction over x0 should yield a constant");
         assert!(
             (value - 0.7).abs() < 1e-12,
@@ -239,20 +236,18 @@ mod tests {
         let mut mgr = DDManager::new();
         let x0 = mgr.new_var();
 
-        let cond = ProtectedBddLocal::new(dd::bdd_var(&mgr, x0));
-        let then_branch = ProtectedAddLocal::new(dd::add_const(&mgr, 0.2));
-        let else_branch = ProtectedAddLocal::new(dd::add_const(&mgr, 0.7));
-        let f = ProtectedAddLocal::new(dd::add_ite(
-            &mut mgr,
-            cond.get(),
-            then_branch.get(),
-            else_branch.get(),
-        ));
+        crate::protected_bdd!(cond, dd::bdd_var(&mgr, x0));
+        crate::protected_add!(then_branch, dd::add_const(0.2));
+        crate::protected_add!(else_branch, dd::add_const(0.7));
+        crate::protected_add!(
+            f,
+            dd::add_ite(cond.get(), then_branch.get(), else_branch.get())
+        );
 
-        let vars = ProtectedVarSetLocal::new(dd::var_set_from_indices(&mgr, &[x0]));
-        let min_abs = ProtectedAddLocal::new(dd::add_min_abstract(&mgr, f.get(), vars.get()));
+        crate::protected_var_set!(vars, dd::var_set_from_indices(&[x0]));
+        crate::protected_add!(min_abs, dd::add_min_abstract(f.get(), vars.get()));
 
-        let value = dd::add_value(&mgr, min_abs.get().0)
+        let value = dd::add_value(min_abs.get().0)
             .expect("min abstraction over x0 should yield a constant");
         assert!(
             (value - 0.2).abs() < 1e-12,

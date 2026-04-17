@@ -33,7 +33,6 @@ fn test_construction(
     let mut symbolic_dtmc = construct_symbolic_dtmc(&model_str, const_overrides)
         .expect("Failed to construct symbolic DTMC");
     let stats = dd::add_stats(
-        &symbolic_dtmc.mgr,
         symbolic_dtmc.transitions.get(),
         symbolic_dtmc.total_variable_count() as u32,
     );

@@ -7,7 +7,6 @@ use crate::analyze::DTMCModelInfo;
 use crate::ast::DTMCAst;
 use crate::ast::utils::init_value;
 use crate::dd_manager::dd;
-use crate::dd_manager::protected_local::{ProtectedAddLocal, ProtectedBddLocal};
 use crate::dd_manager::protected_slot::{ProtectedAddSlot, ProtectedBddSlot, ProtectedVarSetSlot};
 use crate::dd_manager::{BDDVAR, BddNode, DDManager};
 
@@ -64,9 +63,9 @@ impl SymbolicDTMC {
     /// Create an empty symbolic DTMC and allocate base roots.
     pub fn new(ast: DTMCAst, info: DTMCModelInfo) -> Self {
         let mgr = DDManager::new();
-        let transitions = ProtectedAddSlot::new(dd::add_zero(&mgr));
-        let next_var_cube = ProtectedVarSetSlot::new(dd::var_set_empty(&mgr));
-        let curr_var_cube = ProtectedVarSetSlot::new(dd::var_set_empty(&mgr));
+        let transitions = ProtectedAddSlot::new(dd::add_zero());
+        let next_var_cube = ProtectedVarSetSlot::new(dd::var_set_empty());
+        let curr_var_cube = ProtectedVarSetSlot::new(dd::var_set_empty());
 
         Self {
             mgr,
@@ -111,7 +110,6 @@ impl SymbolicDTMC {
     /// Number of reachable states in the DTMC
     pub fn reachable_state_count(&mut self) -> u64 {
         dd::bdd_count_minterms(
-            &self.mgr,
             self.reachable
                 .get()
                 .map(ProtectedBddSlot::get)
@@ -142,7 +140,7 @@ impl SymbolicDTMC {
         ));
 
         let (curr_bits, next_bits) = self.state_variable_counts();
-        let stats = dd::add_stats(&self.mgr, self.transitions.get(), curr_bits + next_bits);
+        let stats = dd::add_stats(self.transitions.get(), curr_bits + next_bits);
         desc.push(format!(
             "Num Nodes ADD: {}, Num Terminals: {}, Transitions(minterms): {}\n",
             stats.node_count, stats.terminal_count, stats.minterms
@@ -151,16 +149,16 @@ impl SymbolicDTMC {
     }
 
     fn build_identity_transition_bdd(&mut self) -> BddNode {
-        let mut ident = ProtectedBddLocal::new(dd::bdd_one(&mut self.mgr));
+        crate::protected_bdd!(ident, dd::bdd_one());
         for (&curr_idx, &next_idx) in self
             .curr_var_indices
             .iter()
             .zip(self.next_var_indices.iter())
         {
-            let curr = ProtectedBddLocal::new(dd::bdd_var(&self.mgr, curr_idx));
-            let next = ProtectedBddLocal::new(dd::bdd_var(&self.mgr, next_idx));
-            let eq = ProtectedBddLocal::new(dd::bdd_equals(&self.mgr, curr.get(), next.get()));
-            ident.set(dd::bdd_and(&self.mgr, ident.get(), eq.get()));
+            crate::protected_bdd!(curr, dd::bdd_var(&self.mgr, curr_idx));
+            crate::protected_bdd!(next, dd::bdd_var(&self.mgr, next_idx));
+            crate::protected_bdd!(eq, dd::bdd_equals(curr.get(), next.get()));
+            ident.set(dd::bdd_and(ident.get(), eq.get()));
         }
         ident.get()
     }
@@ -184,7 +182,7 @@ impl SymbolicDTMC {
     /// Analysis already guarantees folded literal inits and in-range values.
     /// The assertions below therefore check internal consistency only.
     fn build_init_bdd(&mut self) -> BddNode {
-        let mut init = ProtectedBddLocal::new(dd::bdd_one(&mut self.mgr));
+        crate::protected_bdd!(init, dd::bdd_one());
 
         for module in &self.ast.modules {
             for var_decl in &module.local_vars {
@@ -196,19 +194,22 @@ impl SymbolicDTMC {
                 let encoded = (init_val - lo) as u32;
                 let curr_nodes = self.curr_name_to_indices[&var_name].clone();
                 for (i, var_idx) in curr_nodes.into_iter().enumerate() {
-                    let lit = ProtectedBddLocal::new(if (encoded & (1u32 << i)) != 0 {
-                        dd::bdd_var(&self.mgr, var_idx)
-                    } else {
-                        let var = ProtectedBddLocal::new(dd::bdd_var(&self.mgr, var_idx));
-                        dd::bdd_not(&self.mgr, var.get())
-                    });
-                    init.set(dd::bdd_and(&self.mgr, init.get(), lit.get()));
+                    crate::protected_bdd!(
+                        lit,
+                        if (encoded & (1u32 << i)) != 0 {
+                            dd::bdd_var(&self.mgr, var_idx)
+                        } else {
+                            crate::protected_bdd!(var, dd::bdd_var(&self.mgr, var_idx));
+                            dd::bdd_not(var.get())
+                        }
+                    );
+                    init.set(dd::bdd_and(init.get(), lit.get()));
                 }
             }
         }
 
         debug_assert_eq!(
-            dd::bdd_count_minterms(&self.mgr, init.get(), self.curr_var_indices.len() as u32),
+            dd::bdd_count_minterms(init.get(), self.curr_var_indices.len() as u32),
             1
         );
 
@@ -246,59 +247,44 @@ impl SymbolicDTMC {
             .expect("Reachable states should only be set once");
 
         // Filter the transition relation
-        let reachable_add = ProtectedAddLocal::new(dd::bdd_to_add(&mut self.mgr, reachable));
+        crate::protected_add!(reachable_add, dd::bdd_to_add(reachable));
         let old_transitions = self.transitions.get();
-        self.transitions.set(dd::add_times(
-            &mut self.mgr,
-            old_transitions,
-            reachable_add.get(),
-        ));
+        self.transitions
+            .set(dd::add_times(old_transitions, reachable_add.get()));
 
         // Filter the 0-1 transition relation
-        let filtered_01 =
-            ProtectedBddLocal::new(dd::add_to_bdd(&mut self.mgr, self.transitions.get()));
+        crate::protected_bdd!(filtered_01, dd::add_to_bdd(self.transitions.get()));
 
         // Add self-loops to dead-end states
-        let out_curr = ProtectedBddLocal::new(dd::bdd_exists_abstract(
-            &self.mgr,
-            filtered_01.get(),
-            self.next_var_cube.get(),
-        ));
-
-        let not_out_curr = ProtectedBddLocal::new(dd::bdd_not(&self.mgr, out_curr.get()));
-
-        let dead_end_curr =
-            ProtectedBddLocal::new(dd::bdd_and(&self.mgr, reachable, not_out_curr.get()));
-
-        let dead_end_count = dd::bdd_count_minterms(
-            &self.mgr,
-            dead_end_curr.get(),
-            self.curr_var_indices.len() as u32,
+        crate::protected_bdd!(
+            out_curr,
+            dd::bdd_exists_abstract(filtered_01.get(), self.next_var_cube.get(),)
         );
+
+        crate::protected_bdd!(not_out_curr, dd::bdd_not(out_curr.get()));
+
+        crate::protected_bdd!(dead_end_curr, dd::bdd_and(reachable, not_out_curr.get()));
+
+        let dead_end_count =
+            dd::bdd_count_minterms(dead_end_curr.get(), self.curr_var_indices.len() as u32);
 
         if dead_end_count > 0 {
             let curr_next_eq = self.get_curr_next_identity_bdd();
-            let self_loops =
-                ProtectedBddLocal::new(dd::bdd_and(&self.mgr, dead_end_curr.get(), curr_next_eq));
+            crate::protected_bdd!(self_loops, dd::bdd_and(dead_end_curr.get(), curr_next_eq));
 
             // Set transitions_01 to include self-loops on dead-end states
             self.transitions_01
                 .set(ProtectedBddSlot::new(dd::bdd_or(
-                    &self.mgr,
                     filtered_01.get(),
                     self_loops.get(),
                 )))
                 .expect("Transitions 0-1 should only be set once");
 
             // Set transitions to include self-loops on dead-end states
-            let self_loops_add =
-                ProtectedAddLocal::new(dd::bdd_to_add(&mut self.mgr, self_loops.get()));
+            crate::protected_add!(self_loops_add, dd::bdd_to_add(self_loops.get()));
             let original_trans = self.transitions.get();
-            self.transitions.set(dd::add_plus(
-                &mut self.mgr,
-                original_trans,
-                self_loops_add.get(),
-            ));
+            self.transitions
+                .set(dd::add_plus(original_trans, self_loops_add.get()));
         } else {
             self.transitions_01
                 .set(ProtectedBddSlot::new(filtered_01.get()))
