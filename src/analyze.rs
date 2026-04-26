@@ -1,12 +1,11 @@
-//! Semantic analysis and normalization for DTMC models.
+//! Semantic analysis and normalization for models.
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::*;
 use anyhow::{Result, anyhow, bail};
 
-/// Analysis summary consumed by symbolic construction.
 #[derive(Clone, Debug)]
-pub struct DTMCModelInfo {
+pub struct BasicModelInfo {
     pub module_names: Vec<String>,
 
     /// action label -> Vec(modules with commands with this label)
@@ -17,6 +16,69 @@ pub struct DTMCModelInfo {
 
     /// VariableName -> (lo, hi)
     pub var_bounds: HashMap<String, (i32, i32)>,
+}
+
+pub type DTMCModelInfo = BasicModelInfo;
+pub type MDPModelInfo = BasicModelInfo;
+
+pub fn analyse_dtmc(
+    model: &mut DTMCAst,
+    const_overrides: &HashMap<String, String>,
+) -> Result<DTMCModelInfo> {
+    let info = analyse_basic_model(&mut model.basic, const_overrides)?;
+
+    let (symbol_types, constant_values) = get_symbol_table(&model.basic, const_overrides)?;
+    let labels_by_name = analyze_labels(&mut model.labels, &symbol_types, &constant_values)?;
+
+    analyze_properties(
+        &mut model.properties,
+        &symbol_types,
+        &constant_values,
+        &labels_by_name,
+    )?;
+
+    Ok(info)
+}
+
+pub fn analyse_mdp(
+    model: &mut MDPAst,
+    const_overrides: &HashMap<String, String>,
+) -> Result<MDPModelInfo> {
+    let info = analyse_basic_model(&mut model.basic, const_overrides)?;
+
+    let (symbol_types, constant_values) = get_symbol_table(&model.basic, const_overrides)?;
+    let labels_by_name = analyze_labels(&mut model.labels, &symbol_types, &constant_values)?;
+
+    analyze_properties(
+        &mut model.properties,
+        &symbol_types,
+        &constant_values,
+        &labels_by_name,
+    )?;
+
+    Ok(info)
+}
+
+fn get_symbol_table(
+    model: &BasicAst,
+    const_overrides: &HashMap<String, String>,
+) -> Result<(HashMap<String, TypeKind>, HashMap<String, Expr>)> {
+    let mut symbol_types: HashMap<String, TypeKind> = HashMap::new();
+    for (name, decl) in &model.constants {
+        symbol_types.insert(name.clone(), const_type_to_kind(&decl.const_type));
+    }
+    for module in &model.modules {
+        for var_decl in &module.local_vars {
+            let kind = var_type_to_kind(&var_decl.var_type);
+            symbol_types.insert(var_decl.name.clone(), kind);
+        }
+    }
+
+    let mut model_copy = model.clone();
+    let constant_values =
+        apply_and_resolve_constants(&mut model_copy, &symbol_types, const_overrides)?;
+
+    Ok((symbol_types, constant_values))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -324,7 +386,7 @@ fn fold_box_expr(expr: &mut Box<Expr>, constant_values: &HashMap<String, Expr>) 
 fn fold_path_formula(path: &mut PathFormula, constant_values: &HashMap<String, Expr>) {
     match path {
         PathFormula::Next(phi) => fold_box_expr(phi, constant_values),
-        PathFormula::Until { lhs, rhs, bound } => {
+        PathFormula::Until { lhs, rhs, bound } | PathFormula::Release { lhs, rhs, bound } => {
             fold_box_expr(lhs, constant_values);
             fold_box_expr(rhs, constant_values);
             if let Some(k) = bound {
@@ -395,7 +457,7 @@ fn expand_label_refs_in_path_formula(
 ) -> Result<()> {
     match path {
         PathFormula::Next(phi) => expand_label_refs_in_box_expr(phi, labels_by_name),
-        PathFormula::Until { lhs, rhs, bound } => {
+        PathFormula::Until { lhs, rhs, bound } | PathFormula::Release { lhs, rhs, bound } => {
             expand_label_refs_in_box_expr(lhs, labels_by_name)?;
             expand_label_refs_in_box_expr(rhs, labels_by_name)?;
             if let Some(k) = bound {
@@ -616,7 +678,7 @@ fn apply_module_renames(module: &mut Module, renames: &HashMap<String, String>) 
     Ok(())
 }
 
-fn expand_renamed_modules(model: &mut DTMCAst) -> Result<()> {
+fn expand_renamed_modules(model: &mut BasicAst) -> Result<()> {
     if model.renamed_modules.is_empty() {
         return Ok(());
     }
@@ -672,7 +734,7 @@ fn parse_const_overrides(s: &HashMap<String, String>) -> HashMap<String, String>
 }
 
 fn apply_and_resolve_constants(
-    model: &mut DTMCAst,
+    model: &mut BasicAst,
     symbol_types: &HashMap<String, TypeKind>,
     const_overrides: &HashMap<String, String>,
 ) -> Result<HashMap<String, Expr>> {
@@ -684,56 +746,102 @@ fn apply_and_resolve_constants(
     )
 }
 
-fn analyze_properties(
-    properties: &mut [Property],
+trait PropertyExt {
+    fn path_formula_mut(&mut self) -> &mut PathFormula;
+}
+
+impl PropertyExt for DTMCProperty {
+    fn path_formula_mut(&mut self) -> &mut PathFormula {
+        match self {
+            DTMCProperty::ProbQuery(p) | DTMCProperty::RewardQuery(p) => p,
+        }
+    }
+}
+
+impl PropertyExt for MDPProperty {
+    fn path_formula_mut(&mut self) -> &mut PathFormula {
+        match self {
+            MDPProperty::MaxProbQuery(p)
+            | MDPProperty::MinProbQuery(p)
+            | MDPProperty::MaxRewardQuery(p)
+            | MDPProperty::MinRewardQuery(p) => p,
+        }
+    }
+}
+
+fn analyze_properties<P: PropertyExt>(
+    properties: &mut [P],
     symbol_types: &HashMap<String, TypeKind>,
     constant_values: &HashMap<String, Expr>,
     labels_by_name: &HashMap<String, Box<Expr>>,
 ) -> Result<()> {
     for property in properties {
-        let path = match property {
-            Property::ProbQuery(path) | Property::RewardQuery(path) => path,
-        };
+        let path = property.path_formula_mut();
 
         expand_label_refs_in_path_formula(path, labels_by_name)?;
         fold_path_formula(path, constant_values);
         type_check_path_formula(path, symbol_types)?;
 
-        match path {
-            PathFormula::Next(phi) => {
-                ensure_no_primed_idents(phi, "In X phi")?;
-                ensure_type_ok(
-                    infer_expr_type(phi, symbol_types)? == TypeKind::Bool,
-                    "Path formula 'X phi' requires bool phi",
-                )?;
-            }
-            PathFormula::Until { lhs, rhs, bound } => {
-                ensure_no_primed_idents(lhs, "In until lhs formula")?;
-                ensure_no_primed_idents(rhs, "In until rhs formula")?;
-                ensure_type_ok(
-                    infer_expr_type(lhs, symbol_types)? == TypeKind::Bool,
-                    "Until lhs formula must be bool",
-                )?;
-                ensure_type_ok(
-                    infer_expr_type(rhs, symbol_types)? == TypeKind::Bool,
-                    "Until rhs formula must be bool",
-                )?;
-
-                if let Some(k) = bound {
-                    ensure_no_primed_idents(k, "In bounded until bound expression")?;
-                    ensure_type_ok(
-                        infer_expr_type(k, symbol_types)? == TypeKind::Int,
-                        "Bounded-until bound must have int type",
-                    )?;
-                    ensure_type_ok(
-                        matches!(k.as_ref(), Expr::IntLit(v) if *v >= 0),
-                        "Bounded-until bound must fold to a non-negative integer literal",
-                    )?;
-                }
-            }
-        }
+        validate_path_formula_semantics(path, symbol_types)?;
     }
 
+    Ok(())
+}
+
+fn validate_path_formula_semantics(
+    path: &PathFormula,
+    symbol_types: &HashMap<String, TypeKind>,
+) -> Result<()> {
+    match path {
+        PathFormula::Next(phi) => {
+            ensure_no_primed_idents(phi, "In X phi")?;
+            ensure_type_ok(
+                infer_expr_type(phi, symbol_types)? == TypeKind::Bool,
+                "Path formula 'X phi' requires bool phi",
+            )?;
+        }
+        PathFormula::Until { lhs, rhs, bound } => {
+            analyze_temporal_op(lhs, rhs, bound, "until", symbol_types)?;
+        }
+        PathFormula::Release { lhs, rhs, bound } => {
+            analyze_temporal_op(lhs, rhs, bound, "release", symbol_types)?;
+        }
+    }
+    Ok(())
+}
+
+fn analyze_temporal_op(
+    lhs: &Expr,
+    rhs: &Expr,
+    bound: &Option<Box<Expr>>,
+    op_name: &str,
+    symbol_types: &HashMap<String, TypeKind>,
+) -> Result<()> {
+    ensure_no_primed_idents(lhs, &format!("In {} lhs formula", op_name))?;
+    ensure_no_primed_idents(rhs, &format!("In {} rhs formula", op_name))?;
+    ensure_type_ok(
+        infer_expr_type(lhs, symbol_types)? == TypeKind::Bool,
+        format!("{} lhs formula must be bool", op_name),
+    )?;
+    ensure_type_ok(
+        infer_expr_type(rhs, symbol_types)? == TypeKind::Bool,
+        format!("{} rhs formula must be bool", op_name),
+    )?;
+
+    if let Some(k) = bound {
+        ensure_no_primed_idents(k, &format!("In bounded {} bound expression", op_name))?;
+        ensure_type_ok(
+            infer_expr_type(k, symbol_types)? == TypeKind::Int,
+            format!("Bounded-{} bound must have int type", op_name),
+        )?;
+        ensure_type_ok(
+            matches!(k.as_ref(), Expr::IntLit(v) if *v >= 0),
+            format!(
+                "Bounded-{} bound must fold to a non-negative integer literal",
+                op_name
+            ),
+        )?;
+    }
     Ok(())
 }
 
@@ -796,6 +904,17 @@ fn type_check_path_formula(
             }
             Ok(())
         }
+        PathFormula::Release { lhs, rhs, bound } => {
+            type_check_expr(lhs, symbol_types)
+                .map_err(|e| anyhow!("In release lhs expression: {}", e))?;
+            type_check_expr(rhs, symbol_types)
+                .map_err(|e| anyhow!("In release rhs expression: {}", e))?;
+            if let Some(k) = bound {
+                type_check_expr(k, symbol_types)
+                    .map_err(|e| anyhow!("In bounded-release bound expression: {}", e))?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -804,7 +923,7 @@ fn type_check_expr(expr: &Expr, symbol_types: &HashMap<String, TypeKind>) -> Res
     infer_expr_type(expr, symbol_types).map(|_| ())
 }
 
-/// Analyze and normalize a DTMC AST before symbolic translation.
+/// Analyze and normalize a DTMC/MDP AST before symbolic translation.
 ///
 /// This pass:
 /// 1. expands renamed modules and builds a global symbol table,
@@ -816,10 +935,10 @@ fn type_check_expr(expr: &Expr, symbol_types: &HashMap<String, TypeKind>) -> Res
 /// 7. folds constants and labels through properties and validates path formulas,
 /// 8. inserts default actions for unlabeled commands and validates label usage,
 /// 9. collects module/action/variable metadata for symbolic construction.
-pub fn analyze_dtmc(
-    model: &mut DTMCAst,
+pub fn analyse_basic_model(
+    model: &mut BasicAst,
     const_overrides: &HashMap<String, String>,
-) -> Result<DTMCModelInfo> {
+) -> Result<BasicModelInfo> {
     expand_renamed_modules(model)?;
 
     let const_overrides = parse_const_overrides(const_overrides);
@@ -969,14 +1088,7 @@ pub fn analyze_dtmc(
         }
     }
 
-    let labels_by_name = analyze_labels(&mut model.labels, &symbol_types, &constant_values)?;
-
-    analyze_properties(
-        &mut model.properties,
-        &symbol_types,
-        &constant_values,
-        &labels_by_name,
-    )?;
+    let _labels_by_name = analyze_labels(&mut model.labels, &symbol_types, &constant_values)?;
 
     let mut synchronisation_actions: HashMap<String, Vec<String>> = HashMap::new();
     let mut local_variables: HashMap<String, String> = HashMap::new();
@@ -1042,7 +1154,7 @@ pub fn analyze_dtmc(
         }
     }
 
-    Ok(DTMCModelInfo {
+    Ok(BasicModelInfo {
         module_names: model.modules.iter().map(|m| m.name.clone()).collect(),
         modules_of_act: synchronisation_actions,
         module_of_var: local_variables,

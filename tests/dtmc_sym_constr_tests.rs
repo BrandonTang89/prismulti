@@ -1,4 +1,5 @@
 use anyhow::Result;
+use prismulti::analyze::analyse_dtmc;
 use prismulti::constr_symbolic::build_symbolic_dtmc;
 use prismulti::dd_manager::dd;
 use prismulti::parser::parse_dtmc;
@@ -15,7 +16,7 @@ fn construct_symbolic_dtmc(
     const_overrides: &HashMap<String, String>,
 ) -> Result<SymbolicDTMC> {
     let mut ast = parse_dtmc(model_str)?;
-    let info = prismulti::analyze::analyze_dtmc(&mut ast, const_overrides)?;
+    let info = analyse_dtmc(&mut ast, const_overrides)?;
     let symbolic_dtmc = build_symbolic_dtmc(ast, info);
     Ok(symbolic_dtmc)
 }

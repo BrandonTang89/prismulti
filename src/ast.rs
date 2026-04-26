@@ -1,13 +1,65 @@
 pub mod utils;
 
-/// Top-level DTMC AST.
+use std::ops::{Deref, DerefMut};
+
 #[derive(Clone, Debug)]
-pub struct DTMCAst {
+pub struct Ast<M: ModelKind> {
+    pub basic: BasicAst,
+    pub model: M,
+    pub properties: Vec<M::Property>,
+}
+
+pub trait ModelKind {
+    type Property: Clone + std::fmt::Debug + std::fmt::Display;
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Dtmc;
+
+impl ModelKind for Dtmc {
+    type Property = DTMCProperty;
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Mdp;
+
+impl ModelKind for Mdp {
+    type Property = MDPProperty;
+}
+
+pub type DTMCAst = Ast<Dtmc>;
+pub type MDPAst = Ast<Mdp>;
+
+impl<M: ModelKind + Default> Ast<M> {
+    pub fn with_basic(basic: BasicAst) -> Self {
+        Self {
+            basic,
+            model: M::default(),
+            properties: Vec::new(),
+        }
+    }
+}
+
+impl<M: ModelKind> Deref for Ast<M> {
+    type Target = BasicAst;
+
+    fn deref(&self) -> &Self::Target {
+        &self.basic
+    }
+}
+
+impl<M: ModelKind> DerefMut for Ast<M> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.basic
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BasicAst {
     pub modules: Vec<Module>,
     pub constants: Vec<(String, ConstDecl)>,
     pub renamed_modules: Vec<RenamedModule>,
     pub labels: Vec<LabelDecl>,
-    pub properties: Vec<Property>,
     // global vars
     // functions, etc.
 }
@@ -136,9 +188,17 @@ pub struct RenamedModule {
 
 /// Supported property query kinds.
 #[derive(Clone, Debug)]
-pub enum Property {
+pub enum DTMCProperty {
     ProbQuery(PathFormula),
     RewardQuery(PathFormula),
+}
+
+#[derive(Clone, Debug)]
+pub enum MDPProperty {
+    MaxProbQuery(PathFormula),
+    MinProbQuery(PathFormula),
+    MaxRewardQuery(PathFormula),
+    MinRewardQuery(PathFormula),
 }
 
 /// Supported path formulas for the current parser subset.
@@ -146,6 +206,11 @@ pub enum Property {
 pub enum PathFormula {
     Next(Box<Expr>),
     Until {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+        bound: Option<Box<Expr>>,
+    },
+    Release {
         lhs: Box<Expr>,
         rhs: Box<Expr>,
         bound: Option<Box<Expr>>,
@@ -216,15 +281,37 @@ impl std::fmt::Display for PathFormula {
                     write!(f, "{} U {}", lhs, rhs)
                 }
             }
+            PathFormula::Release { lhs, rhs, bound } => {
+                if matches!(rhs.as_ref(), Expr::BoolLit(false)) && bound.is_none() {
+                    write!(f, "G {}", lhs)
+                } else if matches!(rhs.as_ref(), Expr::BoolLit(false)) {
+                    write!(f, "G<={} {}", bound.as_ref().expect("bounded case"), lhs)
+                } else if let Some(k) = bound {
+                    write!(f, "{} R<={} {}", lhs, k, rhs)
+                } else {
+                    write!(f, "{} R {}", lhs, rhs)
+                }
+            }
         }
     }
 }
 
-impl std::fmt::Display for Property {
+impl std::fmt::Display for DTMCProperty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Property::ProbQuery(path) => write!(f, "P=? [{}]", path),
-            Property::RewardQuery(path) => write!(f, "R=? [{}]", path),
+            DTMCProperty::ProbQuery(path) => write!(f, "P=? [{}]", path),
+            DTMCProperty::RewardQuery(path) => write!(f, "R=? [{}]", path),
+        }
+    }
+}
+
+impl std::fmt::Display for MDPProperty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MDPProperty::MaxProbQuery(path) => write!(f, "Pmax=? [{}]", path),
+            MDPProperty::MinProbQuery(path) => write!(f, "Pmin=? [{}]", path),
+            MDPProperty::MaxRewardQuery(path) => write!(f, "Rmax=? [{}]", path),
+            MDPProperty::MinRewardQuery(path) => write!(f, "Rmin=? [{}]", path),
         }
     }
 }

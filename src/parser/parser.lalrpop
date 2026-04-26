@@ -20,8 +20,8 @@ Comma<T>: Vec<T> = {
     }
 };
 
-pub DTMC: DTMCAst = {
-    "dtmc" <items:TopLevelItem*> => {
+ModelItems: BasicAst = {
+    <items:TopLevelItem*> => {
         let mut modules = Vec::new();
         let mut constants = Vec::new();
         let mut renamed_modules = Vec::new();
@@ -34,12 +34,20 @@ pub DTMC: DTMCAst = {
             labels.append(&mut item_labels);
         }
 
-        DTMCAst { modules, constants, renamed_modules, labels, properties: Vec::new() }
+        BasicAst { modules, constants, renamed_modules, labels }
     }
 };
 
-pub DTMCProps: (Vec<(String, ConstDecl)>, Vec<Property>) = {
-    <items:PropTopLevelItem*> => {
+pub DTMC: DTMCAst = {
+    "dtmc" <model:ModelItems> => DTMCAst::with_basic(model)
+};
+
+pub MDP: MDPAst = {
+    "mdp" <model:ModelItems> => MDPAst::with_basic(model)
+};
+
+pub DTMCProps: (Vec<(String, ConstDecl)>, Vec<DTMCProperty>) = {
+    <items:DTMCPropTopLevelItem*> => {
         let mut constants = Vec::new();
         let mut properties = Vec::new();
 
@@ -52,9 +60,28 @@ pub DTMCProps: (Vec<(String, ConstDecl)>, Vec<Property>) = {
     }
 };
 
-PropTopLevelItem: (Vec<(String, ConstDecl)>, Vec<Property>) = {
+pub MDPProps: (Vec<(String, ConstDecl)>, Vec<MDPProperty>) = {
+    <items:MDPPropTopLevelItem*> => {
+        let mut constants = Vec::new();
+        let mut properties = Vec::new();
+
+        for (mut item_constants, mut item_properties) in items {
+            constants.append(&mut item_constants);
+            properties.append(&mut item_properties);
+        }
+
+        (constants, properties)
+    }
+};
+
+DTMCPropTopLevelItem: (Vec<(String, ConstDecl)>, Vec<DTMCProperty>) = {
     <constant:ConstDeclStmt> => (vec![constant], vec![]),
-    <property:PropertyStmt> => (vec![], vec![property]),
+    <property:DTMCPropertyStmt> => (vec![], vec![property]),
+};
+
+MDPPropTopLevelItem: (Vec<(String, ConstDecl)>, Vec<MDPProperty>) = {
+    <constant:ConstDeclStmt> => (vec![constant], vec![]),
+    <property:MDPPropertyStmt> => (vec![], vec![property]),
 };
 
 TopLevelItem: (Vec<Module>, Vec<(String, ConstDecl)>, Vec<RenamedModule>, Vec<LabelDecl>) = {
@@ -82,12 +109,88 @@ LabelDeclStmt: LabelDecl = {
 };
 
 RewardItem: () = {
-    "[" <Comma<Ident>> "]" <Expr> ":" <Expr> ";" => (),
-    <Expr> ":" <Expr> ";" => (),
+    "[" <Comma<Ident>> "]" <RewardExpr> ":" <RewardExpr> ";" => (),
+    <RewardExpr> ":" <RewardExpr> ";" => (),
 };
 
 IgnoredRewardsBlock: () = {
     "rewards" <StringLit?> <RewardItem*> "endrewards" => ()
+};
+
+RewardExpr: () = {
+    <RewardOrExpr> => ()
+};
+
+RewardOrOp: () = {
+    "||" => (),
+    "|" => (),
+};
+
+RewardAndOp: () = {
+    "&&" => (),
+    "&" => (),
+};
+
+RewardEqOp: () = {
+    "=" => (),
+    "!=" => (),
+};
+
+RewardCmpOp: () = {
+    "<" => (),
+    "<=" => (),
+    ">" => (),
+    ">=" => (),
+};
+
+RewardAddOp: () = {
+    "+" => (),
+    "-" => (),
+};
+
+RewardMulOp: () = {
+    "*" => (),
+    "/" => (),
+};
+
+RewardOrExpr: () = {
+    <RewardAndExpr> <(RewardOrOp RewardAndExpr)*> => ()
+};
+
+RewardAndExpr: () = {
+    <RewardEqExpr> <(RewardAndOp RewardEqExpr)*> => ()
+};
+
+RewardEqExpr: () = {
+    <RewardCmpExpr> <(RewardEqOp RewardCmpExpr)*> => ()
+};
+
+RewardCmpExpr: () = {
+    <RewardAddExpr> <(RewardCmpOp RewardAddExpr)*> => ()
+};
+
+RewardAddExpr: () = {
+    <RewardMulExpr> <(RewardAddOp RewardMulExpr)*> => ()
+};
+
+RewardMulExpr: () = {
+    <RewardUnaryExpr> <(RewardMulOp RewardUnaryExpr)*> => ()
+};
+
+RewardUnaryExpr: () = {
+    "!" <RewardUnaryExpr> => (),
+    "-" <RewardUnaryExpr> => (),
+    <RewardPrimaryExpr> => (),
+};
+
+RewardPrimaryExpr: () = {
+    r"[0-9]+" => (),
+    r"[0-9]+\.[0-9]+" => (),
+    "false" => (),
+    "true" => (),
+    <Ident> => (),
+    <Ident> "(" <Comma<RewardExpr>> ")" => (),
+    "(" <RewardExpr> ")" => (),
 };
 
 ConstTypeDecl: ConstType = {
@@ -104,41 +207,61 @@ ConstDeclStmt: (String, ConstDecl) = {
         => (name, ConstDecl { const_type, value: None }),
 };
 
-PropertyStmt: Property = {
+DTMCPropertyStmt: DTMCProperty = {
     "P" "=" "?" "[" <psi:PathFormulaExpr> "]"
-        => Property::ProbQuery(psi),
+        => DTMCProperty::ProbQuery(psi),
     "R" "{" <_reward_name:StringLit> "}" "=" "?" "[" <psi:PathFormulaExpr> "]"
-        => Property::RewardQuery(psi),
+        => DTMCProperty::RewardQuery(psi),
     "R" "=" "?" "[" <psi:PathFormulaExpr> "]"
-        => Property::RewardQuery(psi),
+        => DTMCProperty::RewardQuery(psi),
+};
+
+MDPPropertyStmt: MDPProperty = {
+    "Pmax" "=" "?" "[" <psi:PathFormulaExpr> "]"
+        => MDPProperty::MaxProbQuery(psi),
+    "Pmin" "=" "?" "[" <psi:PathFormulaExpr> "]"
+        => MDPProperty::MinProbQuery(psi),
+    "Rmax" "=" "?" "[" <psi:PathFormulaExpr> "]"
+        => MDPProperty::MaxRewardQuery(psi),
+    "Rmin" "=" "?" "[" <psi:PathFormulaExpr> "]"
+        => MDPProperty::MinRewardQuery(psi),
 };
 
 PathFormulaExpr: PathFormula = {
     "X" <phi:PathStateExpr> => PathFormula::Next(phi),
-    "F" <phi:PathStateExpr> => PathFormula::Until {
+    "F" <bound:TemporalBound?> <phi:PathStateExpr> => PathFormula::Until {
         lhs: Box::new(Expr::BoolLit(true)),
         rhs: phi,
-        bound: None,
+        bound,
     },
-    "F" "<=" <k:BoundExpr> <phi:PathStateExpr> => PathFormula::Until {
-        lhs: Box::new(Expr::BoolLit(true)),
-        rhs: phi,
-        bound: Some(k),
+    "G" <bound:TemporalBound?> <phi:PathStateExpr> => PathFormula::Release {
+        lhs: phi,
+        rhs: Box::new(Expr::BoolLit(false)),
+        bound,
     },
-    <lhs:PathStateExpr> "U" "<=" <k:BoundExpr> <rhs:PathStateExpr> => PathFormula::Until {
+    <lhs:PathStateExpr> "U" <bound:TemporalBound?> <rhs:PathStateExpr> => PathFormula::Until {
         lhs,
         rhs,
-        bound: Some(k),
+        bound,
     },
-    <lhs:PathStateExpr> "U" <rhs:PathStateExpr> => PathFormula::Until {
+    <lhs:PathStateExpr> "R" <bound:TemporalBound?> <rhs:PathStateExpr> => PathFormula::Release {
         lhs,
         rhs,
-        bound: None,
+        bound,
     },
+    "(" <PathFormulaExpr> ")",
+};
+
+TemporalBound: Box<Expr> = {
+    "<=" <BoundExpr> => <>,
+    "<" <k:BoundExpr> => Box::new(Expr::BinOp {
+        lhs: k,
+        op: BinOp::Minus,
+        rhs: Box::new(Expr::IntLit(1)),
+    }),
 };
 
 PathStateExpr: Box<Expr> = {
-    <label:StringLit> => Box::new(Expr::LabelRef(label)),
     <Expr>,
 };
 
@@ -177,7 +300,13 @@ VarDecl: VarDecl = {
 
 Command: Command = {
     "[" <labels:Comma<Ident>> "]" <guard:Expr> "->" <updates:UpdateList> ";"
-        => Command { labels, guard, updates }
+        => Command { labels, guard, updates },
+    "[" <labels:Comma<Ident>> "]" <guard:Expr> "->" "true" ";"
+        => Command {
+            labels,
+            guard,
+            updates: vec![ProbUpdate { prob: Box::new(Expr::FloatLit(1.0)), assignments: Vec::new() }],
+        },
 };
 
 UpdateList: Vec<ProbUpdate> = {
@@ -188,7 +317,7 @@ ProbUpdate: ProbUpdate = {
     <prob:Expr> ":" <assignments:AssignmentList>
         => ProbUpdate { prob, assignments },
     <assignments:AssignmentList>
-        => ProbUpdate { prob: Box::new(Expr::FloatLit(1.0)), assignments }
+        => ProbUpdate { prob: Box::new(Expr::FloatLit(1.0)), assignments },
 };
 
 AssignmentList: Vec<Box<Expr>> = {
@@ -204,10 +333,6 @@ Assignment: Box<Expr> = {
         })
 };
 
-PrimedIdentExpr: Box<Expr> = {
-    <var:Ident> "'" => Box::new(Expr::PrimedIdent(var)),
-};
-
 Ident: String = {
     r"[a-zA-Z_][a-zA-Z0-9_]*" => <>.to_string()
 };
@@ -215,7 +340,6 @@ Ident: String = {
 Expr: Box<Expr> = {
     <cond:OrExpr> "?" <then_branch:Expr> ":" <else_branch:Expr>
         => Box::new(Expr::Ternary { cond, then_branch, else_branch }),
-    <PrimedIdentExpr>,
     <OrExpr>
 };
 
@@ -322,6 +446,7 @@ PrimaryExpr: Box<Expr> = {
     r"[0-9]+\.[0-9]+" => Box::new(Expr::FloatLit(f64::from_str(<>).unwrap())),
     "false" => Box::new(Expr::BoolLit(false)),
     "true" => Box::new(Expr::BoolLit(true)),
+    <label:StringLit> => Box::new(Expr::LabelRef(label)),
     <var:Ident> => Box::new(Expr::Ident(var)),
     "(" <Expr> ")",
 };

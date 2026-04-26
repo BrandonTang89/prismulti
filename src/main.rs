@@ -1,16 +1,27 @@
 use std::collections::HashMap;
 
 use clap::{Parser, ValueEnum};
+use prismulti::analyze::{analyse_dtmc, analyse_mdp};
 use prismulti::ast::Expr;
-use prismulti::parser::{parse_dtmc, parse_dtmc_props};
+use prismulti::parser::{parse_dtmc, parse_dtmc_props, parse_mdp, parse_mdp_props};
 use prismulti::sym_check::{PropertyEvaluation, evaluate_property_at_initial_state};
 use tracing::Level;
 use tracing::{debug, info};
 use tracing_subscriber::FmtSubscriber;
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Copy, Debug)]
 enum ModelType {
     Dtmc,
+    Mdp,
+}
+
+impl ModelType {
+    fn name(self) -> &'static str {
+        match self {
+            ModelType::Dtmc => "DTMC",
+            ModelType::Mdp => "MDP",
+        }
+    }
 }
 
 /// Command-line arguments.
@@ -94,6 +105,32 @@ fn parse_prop_indices_arg(input: &str, property_count: usize) -> anyhow::Result<
     Ok(indices)
 }
 
+fn print_analysis_summary<M: prismulti::ast::ModelKind>(
+    ast: &prismulti::ast::Ast<M>,
+    info: &prismulti::analyze::BasicModelInfo,
+) {
+    println!("Model analysis successful:");
+    println!("  Module names: {:?}", info.module_names);
+    println!("  Initial state:");
+    for module in &ast.modules {
+        for var_decl in &module.local_vars {
+            let init_str = match var_decl.init.as_ref() {
+                Expr::BoolLit(v) => v.to_string(),
+                Expr::IntLit(v) => v.to_string(),
+                Expr::FloatLit(v) => v.to_string(),
+                other => format!("{other}"),
+            };
+            println!("    {} = {}", var_decl.name, init_str);
+        }
+    }
+    if !ast.properties.is_empty() {
+        println!("  Properties:");
+        for (idx, prop) in ast.properties.iter().enumerate() {
+            println!("    {}. {}", idx + 1, prop);
+        }
+    }
+}
+
 fn main() {
     const BANNER: &str = r#"
             _                     _ _   _ 
@@ -130,67 +167,58 @@ fn main() {
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    // Parse, analyze and construct the symbolic model for the selected type.
+    println!(
+        "Parsing {} model from file: {}",
+        args.model_type.name(),
+        args.model
+    );
+    let model_str = match std::fs::read_to_string(&args.model) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to read model file: {e}");
+            return;
+        }
+    };
+
+    let props_str = if let Some(props_path) = &args.prop_file {
+        println!("Parsing property file: {}", props_path);
+        match std::fs::read_to_string(props_path) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                eprintln!("Failed to read property file: {e}");
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
     match args.model_type {
         ModelType::Dtmc => {
-            println!("Parsing DTMC model from file: {}", args.model);
-            let model_str =
-                std::fs::read_to_string(&args.model).expect("Failed to read model file");
-
             let mut ast = match parse_dtmc(&model_str) {
-                Ok(ast) => {
-                    println!("Parsing successful");
-                    ast
-                }
+                Ok(ast) => ast,
                 Err(e) => {
                     eprintln!("Failed to parse DTMC model: {e}");
                     return;
                 }
             };
-
-            if let Some(props_path) = &args.prop_file {
-                println!("Parsing property file: {}", props_path);
-                let props_str = match std::fs::read_to_string(props_path) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        eprintln!("Failed to read property file: {e}");
-                        return;
-                    }
-                };
+            if let Some(props_str) = props_str {
                 match parse_dtmc_props(&props_str) {
                     Ok((mut prop_constants, mut properties)) => {
                         ast.constants.append(&mut prop_constants);
                         ast.properties.append(&mut properties);
                     }
                     Err(e) => {
-                        eprintln!("Failed to parse property file: {e}");
+                        eprintln!("Failed to parse DTMC property file: {e}");
                         return;
                     }
                 }
             }
 
-            let info = match prismulti::analyze::analyze_dtmc(&mut ast, &const_overrides) {
+            let analyzed = analyse_dtmc(&mut ast, &const_overrides);
+            let info = match analyzed {
                 Ok(info) => {
-                    println!("Model analysis successful:");
-                    println!("  Module names: {:?}", info.module_names);
-                    println!("  Initial state:");
-                    for module in &ast.modules {
-                        for var_decl in &module.local_vars {
-                            let init_str = match var_decl.init.as_ref() {
-                                Expr::BoolLit(v) => v.to_string(),
-                                Expr::IntLit(v) => v.to_string(),
-                                Expr::FloatLit(v) => v.to_string(),
-                                other => format!("{other}"),
-                            };
-                            println!("    {} = {}", var_decl.name, init_str);
-                        }
-                    }
-                    if !ast.properties.is_empty() {
-                        println!("  Properties:");
-                        for (idx, prop) in ast.properties.iter().enumerate() {
-                            println!("    {}. {}", idx + 1, prop);
-                        }
-                    }
+                    print_analysis_summary(&ast, &info);
                     info
                 }
                 Err(e) => {
@@ -239,6 +267,42 @@ fn main() {
                 }
                 debug!("Finished property #{}", prop_number);
             }
+        }
+        ModelType::Mdp => {
+            let mut ast = match parse_mdp(&model_str) {
+                Ok(ast) => ast,
+                Err(e) => {
+                    eprintln!("Failed to parse MDP model: {e}");
+                    return;
+                }
+            };
+            if let Some(props_str) = props_str {
+                match parse_mdp_props(&props_str) {
+                    Ok((mut prop_constants, mut properties)) => {
+                        ast.constants.append(&mut prop_constants);
+                        ast.properties.append(&mut properties);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to parse MDP property file: {e}");
+                        return;
+                    }
+                }
+            }
+
+            let analyzed = analyse_mdp(&mut ast, &const_overrides);
+            match analyzed {
+                Ok(info) => {
+                    print_analysis_summary(&ast, &info);
+                }
+                Err(e) => {
+                    eprintln!("Model analysis failed: {e}");
+                    return;
+                }
+            };
+
+            info!(
+                "MDP parsing and analysis complete; symbolic MDP construction is not implemented yet"
+            );
         }
     }
 }

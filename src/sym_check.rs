@@ -11,7 +11,7 @@
 use anyhow::{Result, bail};
 use tracing::{debug, info, trace};
 
-use crate::ast::{Expr, PathFormula, Property};
+use crate::ast::{DTMCProperty, Expr, PathFormula};
 use crate::constr_symbolic::translate_expr;
 use crate::dd_manager::dd;
 use crate::dd_manager::{AddNode, BddNode};
@@ -330,17 +330,17 @@ fn check_unbounded_until_probability_add(
 /// Evaluates one property at the single initial state.
 pub fn evaluate_property_at_initial_state(
     dtmc: &mut SymbolicDTMC,
-    property: &Property,
+    property: &DTMCProperty,
 ) -> Result<PropertyEvaluation> {
     match property {
-        Property::ProbQuery(PathFormula::Next(phi)) => {
+        DTMCProperty::ProbQuery(PathFormula::Next(phi)) => {
             info!("Checking probability next property: {}", property);
             let probability_add = check_next_probability_add(dtmc, phi);
             let value = evaluate_add_in_initial_state(dtmc, probability_add);
             debug!("Computed P=? [X phi] value at initial state: {}", value);
             Ok(PropertyEvaluation::Probability(value))
         }
-        Property::ProbQuery(PathFormula::Until {
+        DTMCProperty::ProbQuery(PathFormula::Until {
             lhs,
             rhs,
             bound: Some(k_expr),
@@ -358,7 +358,7 @@ pub fn evaluate_property_at_initial_state(
             );
             Ok(PropertyEvaluation::Probability(value))
         }
-        Property::ProbQuery(PathFormula::Until {
+        DTMCProperty::ProbQuery(PathFormula::Until {
             lhs,
             rhs,
             bound: None,
@@ -372,7 +372,12 @@ pub fn evaluate_property_at_initial_state(
             );
             Ok(PropertyEvaluation::Probability(value))
         }
-        Property::RewardQuery(_) => Ok(PropertyEvaluation::Unsupported(
+        DTMCProperty::ProbQuery(PathFormula::Release { .. }) => {
+            Ok(PropertyEvaluation::Unsupported(
+                "Release properties (and G sugar) are not supported yet",
+            ))
+        }
+        DTMCProperty::RewardQuery(_) => Ok(PropertyEvaluation::Unsupported(
             "Reward properties are not supported yet",
         )),
     }

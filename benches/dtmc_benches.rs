@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, SamplingMode, black_box, criterion_group, criterion_main};
-use prismulti::analyze::analyze_dtmc;
+use prismulti::analyze::analyse_basic_model;
 use prismulti::constr_symbolic::build_symbolic_dtmc;
 use prismulti::parser::{parse_dtmc, parse_dtmc_props};
 use prismulti::sym_check::{PropertyEvaluation, evaluate_property_at_initial_state};
@@ -26,7 +26,7 @@ fn parse_analyze_construct(
     const_overrides: &HashMap<String, String>,
 ) -> prismulti::symbolic_dtmc::SymbolicDTMC {
     let mut ast = parse_dtmc(model_source).expect("Failed to parse model");
-    let info = analyze_dtmc(&mut ast, const_overrides).expect("Failed to analyze model");
+    let info = analyse_basic_model(&mut ast, const_overrides).expect("Failed to analyze model");
     build_symbolic_dtmc(ast, info)
 }
 
@@ -42,7 +42,7 @@ fn parse_analyze_construct_and_check(
     ast.constants.append(&mut prop_constants);
     ast.properties.append(&mut properties);
 
-    let info = analyze_dtmc(&mut ast, const_overrides).expect("Failed to analyze model");
+    let info = analyse_basic_model(&mut ast, const_overrides).expect("Failed to analyze model");
     let mut dtmc = build_symbolic_dtmc(ast, info);
     let property = {
         let properties = dtmc.ast.properties.clone();

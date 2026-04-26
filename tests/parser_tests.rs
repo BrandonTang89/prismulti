@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use prismulti::analyze::analyze_dtmc;
-use prismulti::ast::{ConstType, Expr, PathFormula, Property};
+use prismulti::ast::{ConstType, DTMCProperty, Expr, PathFormula};
 use prismulti::parser::{parse_dtmc, parse_dtmc_props};
 
 #[test]
@@ -70,7 +69,8 @@ fn parses_and_expands_herman3_renamed_modules() {
     assert_eq!(ast.modules.len(), 1);
     assert_eq!(ast.renamed_modules.len(), 2);
 
-    let info = analyze_dtmc(&mut ast, &HashMap::new()).expect("analysis failed");
+    let info =
+        prismulti::analyze::analyse_dtmc(&mut ast, &HashMap::new()).expect("analysis failed");
 
     assert_eq!(ast.modules.len(), 3);
     assert!(ast.renamed_modules.is_empty());
@@ -87,7 +87,7 @@ fn parses_knuth_two_dice_prop_file() {
     assert_eq!(properties.len(), 2);
 
     match &properties[0] {
-        Property::ProbQuery(PathFormula::Until { lhs, rhs: _, bound }) => {
+        DTMCProperty::ProbQuery(PathFormula::Until { lhs, rhs: _, bound }) => {
             assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
             assert!(bound.is_none());
         }
@@ -95,7 +95,7 @@ fn parses_knuth_two_dice_prop_file() {
     }
 
     match &properties[1] {
-        Property::RewardQuery(PathFormula::Until { lhs, rhs: _, bound }) => {
+        DTMCProperty::RewardQuery(PathFormula::Until { lhs, rhs: _, bound }) => {
             assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
             assert!(bound.is_none());
         }
@@ -114,14 +114,14 @@ fn parses_knuth_die_prop_file() {
 
     assert!(matches!(
         properties[0],
-        Property::ProbQuery(PathFormula::Until { .. })
+        DTMCProperty::ProbQuery(PathFormula::Until { .. })
     ));
     assert!(matches!(
         properties[1],
-        Property::ProbQuery(PathFormula::Next(_))
+        DTMCProperty::ProbQuery(PathFormula::Next(_))
     ));
     match &properties[2] {
-        Property::ProbQuery(PathFormula::Until {
+        DTMCProperty::ProbQuery(PathFormula::Until {
             lhs: _,
             rhs: _,
             bound,
@@ -139,10 +139,10 @@ fn parses_leader_prop_file_with_label_and_bounded_finally() {
 
     assert_eq!(constants.len(), 1);
     assert_eq!(constants[0].0, "L");
-    assert_eq!(properties.len(), 3);
+    assert_eq!(properties.len(), 4);
 
     match &properties[0] {
-        Property::ProbQuery(PathFormula::Until { lhs, rhs, bound }) => {
+        DTMCProperty::ProbQuery(PathFormula::Until { lhs, rhs, bound }) => {
             assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
             assert!(matches!(rhs.as_ref(), Expr::LabelRef(name) if name == "elected"));
             assert!(bound.is_none());
@@ -151,7 +151,7 @@ fn parses_leader_prop_file_with_label_and_bounded_finally() {
     }
 
     match &properties[1] {
-        Property::ProbQuery(PathFormula::Until { lhs, rhs, bound }) => {
+        DTMCProperty::ProbQuery(PathFormula::Until { lhs, rhs, bound }) => {
             assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
             assert!(matches!(rhs.as_ref(), Expr::LabelRef(name) if name == "elected"));
             assert!(bound.is_some());
@@ -160,11 +160,29 @@ fn parses_leader_prop_file_with_label_and_bounded_finally() {
     }
 
     match &properties[2] {
-        Property::RewardQuery(PathFormula::Until { lhs, rhs, bound }) => {
+        DTMCProperty::RewardQuery(PathFormula::Until { lhs, rhs, bound }) => {
             assert!(matches!(lhs.as_ref(), Expr::BoolLit(true)));
             assert!(matches!(rhs.as_ref(), Expr::LabelRef(name) if name == "elected"));
             assert!(bound.is_none());
         }
         other => panic!("unexpected third property: {other:?}"),
+    }
+
+    match &properties[3] {
+        DTMCProperty::ProbQuery(PathFormula::Release { lhs, rhs, bound }) => {
+            assert!(matches!(rhs.as_ref(), Expr::BoolLit(false)));
+            assert!(bound.is_none());
+            // Globally (! "elected") -> (! "elected") R false
+            match lhs.as_ref() {
+                Expr::UnaryOp {
+                    op: prismulti::ast::UnOp::Not,
+                    operand,
+                } => {
+                    assert!(matches!(operand.as_ref(), Expr::LabelRef(name) if name == "elected"));
+                }
+                other => panic!("unexpected lhs in fourth property: {other:?}"),
+            }
+        }
+        other => panic!("unexpected fourth property: {other:?}"),
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use prismulti::analyze::analyze_dtmc;
+use prismulti::analyze::analyse_dtmc;
 use prismulti::parser::{parse_dtmc, parse_dtmc_props};
 use prismulti::sym_check::{PropertyEvaluation, evaluate_property_at_initial_state};
 use prismulti::symbolic_dtmc::SymbolicDTMC;
@@ -22,7 +22,7 @@ fn construct_symbolic_dtmc_with_props(
     ast.constants.append(&mut prop_constants);
     ast.properties.append(&mut properties);
 
-    let info = analyze_dtmc(&mut ast, const_overrides)?;
+    let info = analyse_dtmc(&mut ast, const_overrides)?;
     Ok(prismulti::constr_symbolic::build_symbolic_dtmc(ast, info))
 }
 
@@ -199,7 +199,7 @@ fn dtmc_leader3_2_properties_with_constants() {
     .expect("Failed to construct symbolic DTMC with properties");
 
     let properties = dtmc.ast.properties.clone();
-    assert_eq!(properties.len(), 3);
+    assert_eq!(properties.len(), 4);
 
     match evaluate_property_at_initial_state(&mut dtmc, &properties[0])
         .expect("Property checking failed")
@@ -225,4 +225,11 @@ fn dtmc_leader3_2_properties_with_constants() {
             panic!("Expected unsupported reward property, got probability {value}")
         }
     }
+
+    // match evaluate_property_at_initial_state(&mut dtmc, &properties[3])
+    //     .expect("Property checking failed")
+    // {
+    //     PropertyEvaluation::Probability(value) => assert_close(value, 0.0, 1e-10),
+    //     PropertyEvaluation::Unsupported(reason) => panic!("Expected probability, got {reason}"),
+    // }
 }

@@ -14,21 +14,42 @@ lalrpop_mod!(
 /// On parse failure, this reports line/column-oriented diagnostics to make
 /// grammar errors easier to locate.
 pub fn parse_dtmc(input: &str) -> Result<ast::DTMCAst> {
-    let parser = parser::DTMCParser::new();
-    parser
-        .parse(input)
-        .map_err(|e| parse_error_to_anyhow(input, e))
+    parse_with(input, parser::DTMCParser::new().parse(input))
+}
+
+/// Parse a PRISM MDP model string into the project AST.
+///
+/// On parse failure, this reports line/column-oriented diagnostics to make
+/// grammar errors easier to locate.
+pub fn parse_mdp(input: &str) -> Result<ast::MDPAst> {
+    parse_with(input, parser::MDPParser::new().parse(input))
 }
 
 /// Parsed DTMC property file payload: `(const_declarations, properties)`.
-pub type ParsedProps = (Vec<(String, ast::ConstDecl)>, Vec<ast::Property>);
+pub type ParsedDTMCProps = (Vec<(String, ast::ConstDecl)>, Vec<ast::DTMCProperty>);
+
+/// Parsed MDP property file payload: `(const_declarations, properties)`.
+pub type ParsedMDPProps = (Vec<(String, ast::ConstDecl)>, Vec<ast::MDPProperty>);
 
 /// Parse a DTMC property file into property/query AST.
-pub fn parse_dtmc_props(input: &str) -> Result<ParsedProps> {
-    let parser = parser::DTMCPropsParser::new();
-    parser
-        .parse(input)
-        .map_err(|e| parse_error_to_anyhow(input, e))
+pub fn parse_dtmc_props(input: &str) -> Result<ParsedDTMCProps> {
+    parse_with(input, parser::DTMCPropsParser::new().parse(input))
+}
+
+/// Parse an MDP property file into property/query AST.
+pub fn parse_mdp_props(input: &str) -> Result<ParsedMDPProps> {
+    parse_with(input, parser::MDPPropsParser::new().parse(input))
+}
+
+fn parse_with<T, Tok, Err>(
+    input: &str,
+    parse_result: std::result::Result<T, lalrpop_util::ParseError<usize, Tok, Err>>,
+) -> Result<T>
+where
+    Tok: std::fmt::Display,
+    Err: std::fmt::Display,
+{
+    parse_result.map_err(|e| parse_error_to_anyhow(input, e))
 }
 
 fn parse_error_to_anyhow<Tok, Err>(
