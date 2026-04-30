@@ -26,3 +26,5 @@ psi := X phi                [Next state satisfies phi]
      | F phi                [F phi = true U phi, i.e. phi is eventually satisfied]
 ```
 where `phi` are expressions over state variables.
+
+### Algorithms

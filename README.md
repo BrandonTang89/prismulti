@@ -15,6 +15,7 @@ Working today:
 Not implemented yet:
 - reward model checking (`R=? [...]`)
 - broader PRISM language coverage (MDPs, TSGs, CSGs, etc)
+- api to use with Python for example
 
 ## Differences from Prism
 Apart from some differences in supported features (see other [docs](docs/)), there are some differences in the internal design.
@@ -43,6 +44,11 @@ We also support building with Nix for easier packaging in the future.
 ```bash
 nix build
 ./result/bin/prismulti [options]
+```
+
+It is also possible to download, build and run directly from GitHub:
+```bash
+nix run github:BrandonTang89/prismulti
 ```
 
 For development, we recommend using `nix develop` to get a shell with all the relevant tools installed. 
